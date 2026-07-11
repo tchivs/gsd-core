@@ -225,40 +225,57 @@ module.exports = function gsdPiExtension(pi) {
   const fs = require('node:fs');
   const path = require('node:path');
   const advisedFiles = new Set();
-  const activeGsdTaskIds = new Set();
+  const activeGsdTaskIds = new Map();
   const languagePromptCwds = new Set();
 
-  function trackGsdTaskRequest(event) {
+  function taskIdsFor(cwd) {
+    const projectPath = path.resolve(cwd);
+    let taskIds = activeGsdTaskIds.get(projectPath);
+    if (!taskIds) {
+      taskIds = new Set();
+      activeGsdTaskIds.set(projectPath, taskIds);
+    }
+    return taskIds;
+  }
+
+  function trackGsdTaskRequest(event, cwd) {
     const input = event?.input;
     if (event?.toolName !== 'task' || !input || typeof input.agent !== 'string' || !input.agent.startsWith('gsd-')) return;
+    const taskIds = taskIdsFor(cwd);
     const tasks = Array.isArray(input.tasks) ? input.tasks : [input];
     for (const task of tasks) {
-      if (typeof task?.id === 'string' && task.id) activeGsdTaskIds.add(task.id);
+      if (typeof task?.id === 'string' && task.id) taskIds.add(task.id);
     }
   }
 
-  function trackGsdTaskProgress(event) {
+  function trackGsdTaskProgress(event, cwd) {
     const progress = event?.details?.progress;
     if (!Array.isArray(progress)) return;
+    const taskIds = taskIdsFor(cwd);
     for (const task of progress) {
       if (typeof task?.agent === 'string' && task.agent.startsWith('gsd-') && typeof task.id === 'string' && task.id) {
-        activeGsdTaskIds.add(task.id);
+        taskIds.add(task.id);
       }
     }
   }
 
-  function releaseSettledGsdTasks(event) {
+  function releaseSettledGsdTasks(event, cwd) {
     if (event?.toolName !== 'job') return;
     const jobs = event?.details?.jobs;
     if (!Array.isArray(jobs)) return;
+    const projectPath = path.resolve(cwd);
+    const taskIds = activeGsdTaskIds.get(projectPath);
+    if (!taskIds) return;
     for (const job of jobs) {
-      if (job?.status !== 'running' && typeof job?.id === 'string') activeGsdTaskIds.delete(job.id);
+      if (job?.status !== 'running' && typeof job?.id === 'string') taskIds.delete(job.id);
     }
+    if (taskIds.size === 0) activeGsdTaskIds.delete(projectPath);
   }
 
-  function nativeTaskWaitBlock(event) {
+  function nativeTaskWaitBlock(event, cwd) {
     const input = event?.input || {};
-    if (event?.toolName !== 'irc' || input.op !== 'wait' || typeof input.from !== 'string' || !activeGsdTaskIds.has(input.from)) return null;
+    const taskIds = activeGsdTaskIds.get(path.resolve(cwd));
+    if (event?.toolName !== 'irc' || input.op !== 'wait' || typeof input.from !== 'string' || !taskIds?.has(input.from)) return null;
     return `GSD OMP guard: "${input.from}" is a native task job. Do not wait for task completion through IRC; use job poll ["${input.from}"] and consume its task result instead.`;
   }
 
@@ -1027,8 +1044,8 @@ OMP dispatch contract:
 
   pi.on('tool_result', async (event, ctx) => {
     if (!isGsdProject(ctx.cwd)) return;
-    trackGsdTaskProgress(event);
-    releaseSettledGsdTasks(event);
+    trackGsdTaskProgress(event, ctx.cwd);
+    releaseSettledGsdTasks(event, ctx.cwd);
     const output = (event.content || [])
       .filter((chunk) => chunk.type === 'text')
       .map((chunk) => chunk.text)
@@ -1043,8 +1060,8 @@ OMP dispatch contract:
   });
 
   pi.on('tool_call', async (event, ctx) => {
-    trackGsdTaskRequest(event);
-    const taskWaitBlock = nativeTaskWaitBlock(event);
+    trackGsdTaskRequest(event, ctx.cwd);
+    const taskWaitBlock = nativeTaskWaitBlock(event, ctx.cwd);
     if (taskWaitBlock) return { block: true, reason: taskWaitBlock };
     const advisory = workflowAdvisory(event, ctx.cwd);
     if (!advisory) return undefined;

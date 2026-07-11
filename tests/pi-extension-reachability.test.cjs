@@ -120,6 +120,29 @@ test('the OMP bridge blocks IRC completion waits for tracked GSD task jobs', asy
   }, ctx), undefined);
 });
 
+test('the OMP task wait guard is scoped to the GSD project', async () => {
+  const firstCwd = fs.mkdtempSync(path.join(os.tmpdir(), 'gsd-omp-task-guard-first-'));
+  const secondCwd = fs.mkdtempSync(path.join(os.tmpdir(), 'gsd-omp-task-guard-second-'));
+  for (const cwd of [firstCwd, secondCwd]) {
+    fs.mkdirSync(path.join(cwd, '.planning'));
+    fs.writeFileSync(path.join(cwd, '.planning', 'STATE.md'), '---\ncurrent_phase: "01"\nstatus: executing\n---\n');
+  }
+  const pi = mockPi();
+  gsdPiExtension(pi);
+  const task = {
+    toolName: 'task',
+    input: { agent: 'gsd-executor', tasks: [{ id: 'Phase01Plan0101Executor' }] },
+  };
+  const wait = {
+    toolName: 'irc',
+    input: { op: 'wait', from: 'Phase01Plan0101Executor' },
+  };
+
+  await pi._recorded.events.tool_call(task, { cwd: firstCwd });
+  assert.equal((await pi._recorded.events.tool_call(wait, { cwd: firstCwd })).block, true);
+  assert.equal(await pi._recorded.events.tool_call(wait, { cwd: secondCwd }), undefined);
+});
+
 test('the gsd_invoke tool returns the hub result in OMP tool shape', async () => {
   const pi = mockPi();
   gsdPiExtension(pi);
