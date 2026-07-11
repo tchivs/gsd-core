@@ -38,6 +38,10 @@ Three modes:
 @~/.claude/gsd-core/references/ui-brand.md
 </execution_context>
 
+<omp_artifact_handling>
+**OMP:** `.planning/debug/` and `.planning/todos/pending/` are optional. Their absence means zero active debug sessions and zero pending todo artifacts; do not emit an error or invoke Glob/Grep with either missing directory as its root. When checking optional artifacts, scan an existing `.planning` root and filter matching paths. A truncated summary glob may supply recent-work examples only; never use it to derive plan or summary counts.
+</omp_artifact_handling>
+
 <process>
 Arguments provided: "$ARGUMENTS"
 Parse the first token from the provided arguments:
