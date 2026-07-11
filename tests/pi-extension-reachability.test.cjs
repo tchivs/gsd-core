@@ -9,6 +9,8 @@ const { spawnSync } = require('node:child_process');
 const { cleanup } = require('./helpers.cjs');
 
 const gsdPiExtension = require('../pi/gsd.cjs');
+const { _internals } = require('../pi/gsd.cjs');
+const { createTempDir, cleanup } = require('./helpers.cjs');
 
 function mockZod() {
   const chain = () => ({ default: () => chain(), optional: () => chain() });

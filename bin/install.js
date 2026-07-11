@@ -507,6 +507,7 @@ const {
   installRuntimeArtifacts,
   uninstallRuntimeArtifacts,
   installOpencodeFamilySkills,
+  _installNativePluginIfDeclared,
   _copyStaged,
   hasExistingSymlinkBetween,
   preserveUserArtifacts,
@@ -711,7 +712,7 @@ const banner = '\n' +
   '  GSD Core ' + dim + 'v' + pkg.version + reset + '\n' +
   '  Git. Ship. Done.\n' +
   '  A meta-prompting, context engineering and spec-driven\n' +
-  '  development workflows for Claude Code, OpenCode, Kimi CLI, Kilo, Codex, Copilot, Antigravity, Cursor, Windsurf, Augment, Trae, Qwen Code, Hermes Agent, Cline, CodeBuddy and ZCode.\n';
+  '  development workflows for Claude Code, OpenCode, Kimi CLI, Kilo, Codex, Copilot, Antigravity, Cursor, Windsurf, Augment, Trae, Qwen Code, Hermes Agent, Cline, CodeBuddy, ZCode and pi.\n';
 
 // Pure seam: parse --config-dir / -c from an arbitrary args array.
 // Returns the path string, '' for an empty equals-form value, or null when the
@@ -9520,6 +9521,16 @@ function install(isGlobal, runtime = DEFAULT_RUNTIME, options = {}) {
     // Descriptor-driven (ADR-1239 / #2090): folded from `isCline` into
     // hostBehaviors.localCommandsViaRules.
     console.log(`  ${green}✓${reset} Cline: commands will be available via .clinerules`);
+  } else if (_hostBehaviors(runtime).pluginOnlyInstall) {
+    // pi (ADR-1239 / #2102 Stage 1): plugin-only install — pi's /gsd command is
+    // registered programmatically by the native extension (pi/gsd.cjs →
+    // extensions/gsd.cjs, staged separately below) and dispatches in-process
+    // through the embedded gsd-core command-routing hub. pi has no host-read
+    // markdown surface (unlike Claude/OpenCode/etc., which scan commands/ or
+    // command/ directories), so writing flat gsd-<cmd>.md files here would be
+    // dead weight the extension never reads. Skip the flat-commands fallback
+    // entirely for pluginOnlyInstall runtimes.
+    console.log(`  ${green}✓${reset} pi: /gsd registered via native extension (no declarative command files)`);
   } else {
     // Claude Code local: flat gsd-<cmd>.md layout — Claude Code registers
     // commands from .claude/commands/ using the filename stem as the command
@@ -9588,6 +9599,18 @@ function install(isGlobal, runtime = DEFAULT_RUNTIME, options = {}) {
         console.log(`  ${green}✓${reset} Removed ${staleGsd.length} stale GSD skill(s) from skills/`);
       }
     }
+  }
+
+  // Native-extension/plugin staging for runtimes OUTSIDE the layout-driven
+  // _isSkillsRuntime branch above (ADR-1239 / #2102 Stage 1: pi). OpenCode/Kilo
+  // already get their nativePlugin file from installOpencodeFamilyArtifacts
+  // (called inside the _isSkillsRuntime branch, since both declare a non-empty
+  // artifactLayout) — guard on `!_isSkillsRuntime` so this standalone call never
+  // double-stages their plugin file. A runtime like pi, whose artifactLayout is
+  // intentionally empty for both scopes (`_isSkillsRuntime` is false), still
+  // needs its declared hostBehaviors.nativePlugin file copied into targetDir.
+  if (!_isSkillsRuntime && _hostBehaviors(runtime).nativePlugin) {
+    _installNativePluginIfDeclared(runtime, targetDir, _hostBehaviors(runtime), src);
   }
 
   // Copy gsd-core skill with path replacement
@@ -9715,8 +9738,10 @@ function install(isGlobal, runtime = DEFAULT_RUNTIME, options = {}) {
   // `--minimal` actually shrinks a previously-full install.
   // For Codex this also covers per-agent `.toml` files alongside the `.md`
   // sources so a full → minimal switch doesn't leave stale registrations.
-  // Skipped for descriptor-agent runtimes (installRuntimeArtifacts prunes).
-  if (!_DESCRIPTOR_AGENTS_RUNTIMES.has(runtime) && fs.existsSync(agentsDest)) {
+  // Skipped for descriptor-agent runtimes (installRuntimeArtifacts prunes) and
+  // for pluginOnlyInstall runtimes (pi, ADR-1239 / #2102 Stage 1 — no agents/
+  // dir is ever written for them, see the leading branch below).
+  if (!_DESCRIPTOR_AGENTS_RUNTIMES.has(runtime) && !_hostBehaviors(runtime).pluginOnlyInstall && fs.existsSync(agentsDest)) {
     for (const file of fs.readdirSync(agentsDest)) {
       if (
         file.startsWith('gsd-') &&
@@ -9727,7 +9752,12 @@ function install(isGlobal, runtime = DEFAULT_RUNTIME, options = {}) {
     }
   }
 
-  if (_DESCRIPTOR_AGENTS_RUNTIMES.has(runtime)) {
+  if (_hostBehaviors(runtime).pluginOnlyInstall) {
+    // pi (ADR-1239 / #2102 Stage 1): programmatic dispatch has no named-dispatch
+    // subagent toolkit (dispatch.subagentToolkit: "undocumented", no Agent-tool
+    // equivalent) and no host-read markdown surface — skip writing agents/ entirely.
+    console.log(`  ${green}✓${reset} pi: no subagent files (programmatic dispatch, no named-dispatch toolkit)`);
+  } else if (_DESCRIPTOR_AGENTS_RUNTIMES.has(runtime)) {
     // installRuntimeArtifacts already wrote agents + handles stale-file cleanup
     // via its own prune pass. No further action needed.
     console.log(`  ${dim}↳${reset} Agents installed via descriptor-driven layout (${runtime})`);
