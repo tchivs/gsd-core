@@ -226,6 +226,7 @@ module.exports = function gsdPiExtension(pi) {
   const path = require('node:path');
   const advisedFiles = new Set();
   const activeGsdTaskIds = new Map();
+  const nativePhaseCwds = new Set();
   const languagePromptCwds = new Set();
 
   function taskIdsFor(cwd) {
@@ -277,6 +278,20 @@ module.exports = function gsdPiExtension(pi) {
     const taskIds = activeGsdTaskIds.get(path.resolve(cwd));
     if (event?.toolName !== 'irc' || input.op !== 'wait' || typeof input.from !== 'string' || !taskIds?.has(input.from)) return null;
     return `GSD OMP guard: "${input.from}" is a native task job. Do not wait for task completion through IRC; use job poll ["${input.from}"] and consume its task result instead.`;
+  }
+
+  function nativePhaseWriteBlock(event, cwd) {
+    const projectPath = path.resolve(cwd);
+    if (!nativePhaseCwds.has(projectPath)) return null;
+    if (stateSnapshot(cwd)?.status !== 'executing') {
+      nativePhaseCwds.delete(projectPath);
+      return null;
+    }
+    if (!new Set(['edit', 'write', 'ast_edit', 'ast-edit']).has(event?.toolName)) return null;
+    const input = event.input || {};
+    const filePath = input.path || input.filePath || input.file_path || input.file || '';
+    if (String(filePath).includes('.planning/')) return null;
+    return 'GSD OMP guard: native phase execution must dispatch an isolated gsd-executor task for repository file changes; do not edit source files in the parent checkout.';
   }
 
   function resolveEngineRoot(startDir) {
@@ -941,6 +956,7 @@ OMP dispatch contract:
         await pi.sendMessage({ customType: 'gsd-execute-input-error', content: 'Usage: /gsd-execute-phase <phase> [--wave N] [--gaps-only] [--interactive] [--tdd] [--auto]', display: true }, { triggerTurn: false });
         return;
       }
+      nativePhaseCwds.add(path.resolve(ctx.cwd));
       await pi.sendMessage({ customType: 'gsd-native-execute-phase', content: prompt, display: true }, { triggerTurn: true });
     },
   });
@@ -1064,6 +1080,8 @@ OMP dispatch contract:
     trackGsdTaskRequest(event, ctx.cwd);
     const taskWaitBlock = nativeTaskWaitBlock(event, ctx.cwd);
     if (taskWaitBlock) return { block: true, reason: taskWaitBlock };
+    const nativePhaseBlock = nativePhaseWriteBlock(event, ctx.cwd);
+    if (nativePhaseBlock) return { block: true, reason: nativePhaseBlock };
     const advisory = workflowAdvisory(event, ctx.cwd);
     if (!advisory) return undefined;
     await pi.sendMessage({

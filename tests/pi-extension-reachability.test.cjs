@@ -89,6 +89,26 @@ test('the native phase command injects a task-based execution contract', async (
   assert.equal(pi._recorded.messages.at(-1).options.triggerTurn, false);
 });
 
+test('the native phase command blocks parent-checkout source writes', async () => {
+  const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'gsd-omp-native-phase-'));
+  fs.mkdirSync(path.join(cwd, '.planning'));
+  fs.writeFileSync(path.join(cwd, '.planning', 'STATE.md'), '---\ncurrent_phase: "01"\nstatus: executing\n---\n');
+  const pi = mockPi();
+  gsdPiExtension(pi);
+  await pi._recorded.commands['gsd-execute-phase'].handler('01', { cwd });
+
+  const blocked = await pi._recorded.events.tool_call({
+    toolName: 'write',
+    input: { path: 'src/proof.ts' },
+  }, { cwd });
+  assert.equal(blocked.block, true);
+  assert.match(blocked.reason, /isolated gsd-executor task/);
+  assert.equal(await pi._recorded.events.tool_call({
+    toolName: 'write',
+    input: { path: '.planning/STATE.md' },
+  }, { cwd }), undefined);
+});
+
 test('the OMP bridge blocks IRC completion waits for tracked GSD task jobs', async () => {
   const pi = mockPi();
   gsdPiExtension(pi);
@@ -187,6 +207,7 @@ test('the OMP agent installer projects native task and isolation guidance', () =
   assert.match(executor, /OMP executor result protocol/);
   assert.match(executor, /Never use `irc wait` for task completion/);
   assert.match(executor, /MUST terminal-yield immediately after its final verification/);
+  assert.match(executor, /call the native hidden yield tool exactly once/);
   assert.match(executor, /\[gsd-task-result\] phase \{PHASE\}/);
   const extensionDestination = path.join(destination, 'extensions', 'gsd-omp.ts');
   const extensionInstaller = path.resolve(__dirname, '..', 'pi', 'install-omp-extension.cjs');
