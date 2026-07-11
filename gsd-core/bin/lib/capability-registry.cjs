@@ -2779,7 +2779,7 @@ const capabilities = {
     "role": "runtime",
     "version": "1.7.0-rc.5",
     "title": "Windsurf",
-    "description": "Windsurf (Codeium) — workspace workflow artifact layout for slash commands; no hook surface; no hook events; tier-2 support.",
+    "description": "Windsurf (Codeium) — workspace workflow artifact layout for slash commands; Cascade native hooks.json blocking hook bus (pre_write_code, pre_run_command); tier-2 support.",
     "tier": "core",
     "requires": [],
     "engines": {
@@ -2827,7 +2827,7 @@ const capabilities = {
         ]
       },
       "commandStyle": "slash-hyphen",
-      "hooksSurface": "none",
+      "hooksSurface": "windsurf-hooks-json",
       "sandboxTier": "none",
       "supportTier": 2,
       "installSurface": "profile-marker-only",
@@ -2850,6 +2850,12 @@ const capabilities = {
         "stateIO": "filesystem",
         "transport": "mcp",
         "runtime": "undocumented"
+      },
+      "hostBehaviors": {
+        "skipSharedHooksInstall": true,
+        "legacyDevinSkillsCleanup": true,
+        "installsCommandBodiesForWorkflowDelegation": true,
+        "verificationStyle": "windsurf-workflows"
       }
     }
   },
@@ -5322,7 +5328,7 @@ const runtimes = {
     "role": "runtime",
     "version": "1.7.0-rc.5",
     "title": "Windsurf",
-    "description": "Windsurf (Codeium) — workspace workflow artifact layout for slash commands; no hook surface; no hook events; tier-2 support.",
+    "description": "Windsurf (Codeium) — workspace workflow artifact layout for slash commands; Cascade native hooks.json blocking hook bus (pre_write_code, pre_run_command); tier-2 support.",
     "tier": "core",
     "requires": [],
     "engines": {
@@ -5370,7 +5376,7 @@ const runtimes = {
         ]
       },
       "commandStyle": "slash-hyphen",
-      "hooksSurface": "none",
+      "hooksSurface": "windsurf-hooks-json",
       "sandboxTier": "none",
       "supportTier": 2,
       "installSurface": "profile-marker-only",
@@ -5393,6 +5399,12 @@ const runtimes = {
         "stateIO": "filesystem",
         "transport": "mcp",
         "runtime": "undocumented"
+      },
+      "hostBehaviors": {
+        "skipSharedHooksInstall": true,
+        "legacyDevinSkillsCleanup": true,
+        "installsCommandBodiesForWorkflowDelegation": true,
+        "verificationStyle": "windsurf-workflows"
       }
     }
   },
