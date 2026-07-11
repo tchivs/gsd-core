@@ -152,7 +152,32 @@ To use a different OMP agent directory, set `PI_CODING_AGENT_DIR` before running
 PI_CODING_AGENT_DIR=~/.omp-alt/agent npm run install:omp
 ```
 
-The extension entry imports `pi/gsd.cjs` by its absolute checkout path. Keep that checkout available; after updating it, rerun `npm run install:omp` and restart OMP.
+The extension entry imports `pi/gsd.cjs` by its absolute checkout path. Keep that checkout available.
+
+#### Updating OMP
+
+`/gsd-update` updates GSD's managed standard-runtime installation (for example, `~/.claude/`). It does not update this OMP source checkout or reinstall the OMP extension and agents, so it must not be used to upgrade the OMP adapter.
+
+Commit or stash local changes, then update the checkout you installed from and reinstall the adapter:
+
+```bash
+cd gsd-core
+git pull --ff-only
+npm install
+npm run install:omp
+```
+
+For a personal fork, bring official changes into your branch through its `upstream` remote before reinstalling:
+
+```bash
+git fetch upstream
+git merge upstream/next
+git push origin HEAD
+npm install
+npm run install:omp
+```
+
+Resolve any Git merge conflict before reinstalling, then restart OMP.
 
 ---
 

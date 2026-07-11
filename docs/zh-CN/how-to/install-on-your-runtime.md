@@ -95,7 +95,32 @@ npm run install:omp
 PI_CODING_AGENT_DIR=~/.omp-alt/agent npm run install:omp
 ```
 
-扩展入口会通过绝对 checkout 路径导入 `pi/gsd.cjs`。请保留该 checkout；更新源码后，重新执行 `npm run install:omp` 并重启 OMP。
+扩展入口会通过绝对 checkout 路径导入 `pi/gsd.cjs`。请保留该 checkout。
+
+#### 更新 OMP
+
+`/gsd-update` 更新的是 GSD 受管理的标准运行时安装目录（例如 `~/.claude/`）。它不会更新 OMP 的源码 checkout，也不会重新安装 OMP extension 和 agents，因此不能用它升级 OMP 适配器。
+
+先提交或暂存本地修改，然后更新实际用于安装的 checkout 并重新安装适配器：
+
+```bash
+cd gsd-core
+git pull --ff-only
+npm install
+npm run install:omp
+```
+
+如果使用个人 fork，请先通过 `upstream` remote 将官方变更合入当前分支，再重新安装：
+
+```bash
+git fetch upstream
+git merge upstream/next
+git push origin HEAD
+npm install
+npm run install:omp
+```
+
+若 Git 合并发生冲突，请先解决冲突再重新安装，随后重启 OMP。
 
 ---
 
