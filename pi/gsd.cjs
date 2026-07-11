@@ -700,6 +700,7 @@ module.exports = function gsdPiExtension(pi) {
   }
 
   function updateStatus(ctx) {
+    if (!isGsdProject(ctx.cwd)) return;
     if (ctx.ui?.setStatus) ctx.ui.setStatus('gsd', statusText(ctx.cwd) || '');
     if (ctx.hasUI && ctx.ui?.setWidget) {
       ctx.ui.setWidget('gsd', widgetLines(ctx.cwd), { placement: 'aboveEditor' });
@@ -707,6 +708,7 @@ module.exports = function gsdPiExtension(pi) {
   }
 
   function workflowAdvisory(event, cwd) {
+    if (!isGsdProject(cwd)) return null;
     const config = readConfig(cwd);
     if (!config?.hooks?.workflow_guard) return null;
     if (!new Set(['edit', 'write', 'ast_edit', 'ast-edit']).has(event.toolName)) return null;
@@ -1009,6 +1011,7 @@ OMP dispatch contract:
   });
 
   pi.on('session_start', (_event, ctx) => {
+    if (!isGsdProject(ctx.cwd)) return;
     scheduleLanguagePrompt(ctx);
     updateStatus(ctx);
     if (!ctx.hasUI) return;
@@ -1017,10 +1020,11 @@ OMP dispatch contract:
   });
 
   pi.on('turn_end', async (_event, ctx) => {
-    updateStatus(ctx);
+    if (isGsdProject(ctx.cwd)) updateStatus(ctx);
   });
 
   pi.on('tool_result', async (event, ctx) => {
+    if (!isGsdProject(ctx.cwd)) return;
     trackGsdTaskProgress(event);
     releaseSettledGsdTasks(event);
     const output = (event.content || [])

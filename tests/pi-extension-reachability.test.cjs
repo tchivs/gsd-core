@@ -88,7 +88,10 @@ test('the native phase command injects a task-based execution contract', async (
 test('the OMP bridge blocks IRC completion waits for tracked GSD task jobs', async () => {
   const pi = mockPi();
   gsdPiExtension(pi);
-  const ctx = { cwd: path.resolve(__dirname, '..') };
+  const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'gsd-omp-task-guard-'));
+  fs.mkdirSync(path.join(cwd, '.planning'));
+  fs.writeFileSync(path.join(cwd, '.planning', 'STATE.md'), '---\ncurrent_phase: "01"\nstatus: executing\n---\n');
+  const ctx = { cwd };
 
   await pi._recorded.events.tool_call({
     toolName: 'task',
@@ -262,6 +265,7 @@ test('the OMP adapter persists native executor task results', async () => {
 
   const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'gsd-omp-results-'));
   fs.mkdirSync(path.join(cwd, '.planning'));
+  fs.writeFileSync(path.join(cwd, '.planning', 'STATE.md'), '---\ncurrent_phase: "05"\nstatus: executing\n---\n');
   await pi._recorded.events.tool_result({ content: [{ type: 'text', text: '[gsd-task-result] phase 05 plan 05-08 task Phase05Plan0508Executor completed' }] }, { cwd });
   await pi._recorded.events.tool_result({ content: [{ type: 'text', text: '[gsd-task-result] phase 05 plan 05-08 task Phase05Plan0508Executor failed' }] }, { cwd });
   assert.deepEqual(JSON.parse(fs.readFileSync(path.join(cwd, '.planning', '.omp-task-results.json'), 'utf8')), [{ ...result, status: 'failed' }]);
@@ -475,6 +479,35 @@ test('the language selector skips directories that are not GSD projects', async 
   assert.deepEqual(JSON.parse(fs.readFileSync(configPath, 'utf8')), {});
 });
 
+test('the adapter lifecycle stays inert outside a GSD project', async () => {
+  const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'gsd-omp-lifecycle-gate-'));
+  fs.mkdirSync(path.join(cwd, '.planning'));
+  fs.writeFileSync(path.join(cwd, '.planning', 'config.json'), JSON.stringify({ hooks: { workflow_guard: true } }));
+  const pi = mockPi();
+  gsdPiExtension(pi);
+  const statuses = [];
+  const widgets = [];
+  const ctx = {
+    cwd,
+    hasUI: true,
+    ui: {
+      setStatus: (key, text) => statuses.push({ key, text }),
+      setWidget: (key, lines) => widgets.push({ key, lines }),
+    },
+  };
+
+  await pi._recorded.events.session_start({}, ctx);
+  await pi._recorded.events.turn_end({}, ctx);
+  const advisory = await pi._recorded.events.tool_call({ toolName: 'edit', input: { path: 'src/app.ts' } }, ctx);
+  await pi._recorded.events.tool_result({ content: [{ type: 'text', text: '[checkpoint] phase 01 wave 1/1 plan 01-01 complete (1/1 plans done)' }] }, ctx);
+
+  assert.equal(advisory, undefined);
+  assert.deepEqual(statuses, []);
+  assert.deepEqual(widgets, []);
+  assert.equal(pi._recorded.messages.length, 0);
+  assert.equal(fs.existsSync(path.join(cwd, '.planning', '.omp-checkpoint.json')), false);
+});
+
 test('an unresolved language dialog never blocks the session-start handler', async () => {
   const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'gsd-omp-language-timeout-'));
   fs.mkdirSync(path.join(cwd, '.planning'));
@@ -613,6 +646,7 @@ test('the workflow guard queues one non-blocking advisory per edited file', asyn
   const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'gsd-omp-guard-'));
   fs.mkdirSync(path.join(cwd, '.planning'));
   fs.writeFileSync(path.join(cwd, '.planning', 'config.json'), JSON.stringify({ hooks: { workflow_guard: true } }));
+  fs.writeFileSync(path.join(cwd, '.planning', 'STATE.md'), '---\ncurrent_phase: "01"\nstatus: executing\n---\n');
 
   const pi = mockPi();
   gsdPiExtension(pi);
