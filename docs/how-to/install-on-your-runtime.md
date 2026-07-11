@@ -133,6 +133,29 @@ OPENCODE_CONFIG_DIR=~/.config/opencode-alt npx @opengsd/gsd-core@latest --openco
 
 ---
 
+### Oh My Pi (OMP)
+
+OMP uses a Pi-compatible extension plus OMP-native agents. It is not yet selectable through the generic `npx @opengsd/gsd-core` installer, so install the adapter from a persistent source checkout:
+
+```bash
+git clone https://github.com/open-gsd/gsd-core.git
+cd gsd-core
+npm install
+npm run install:omp
+```
+
+This writes the extension entry to `~/.omp/agent/extensions/gsd-omp.ts` and projects GSD agents to `~/.omp/agent/agents/`. Restart OMP after installation.
+
+To use a different OMP agent directory, set `PI_CODING_AGENT_DIR` before running the script:
+
+```bash
+PI_CODING_AGENT_DIR=~/.omp-alt/agent npm run install:omp
+```
+
+The extension entry imports `pi/gsd.cjs` by its absolute checkout path. Keep that checkout available; after updating it, rerun `npm run install:omp` and restart OMP.
+
+---
+
 ### Kilo
 
 ```bash

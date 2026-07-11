@@ -78,6 +78,7 @@
     "fallow": "^2.70.0"
   },
   "scripts": {
+    "install:omp": "node pi/install-omp-extension.cjs && node pi/install-omp-agents.cjs",
     "sync:launcher": "node scripts/sync-runtime-launcher.cjs",
     "check:env": "node scripts/check-env.cjs",
     "check:alias-drift": "node scripts/check-alias-drift.cjs",

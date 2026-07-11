@@ -76,6 +76,29 @@ OPENCODE_CONFIG_DIR=~/.config/opencode-alt npx @opengsd/gsd-core@latest --openco
 
 ---
 
+### Oh My Pi (OMP)
+
+OMP 使用兼容 Pi 的扩展入口和 OMP 原生 agents。目前它还不能通过通用 `npx @opengsd/gsd-core` 安装程序选择，因此请从一个不会被移动或删除的源码 checkout 安装适配器：
+
+```bash
+git clone https://github.com/open-gsd/gsd-core.git
+cd gsd-core
+npm install
+npm run install:omp
+```
+
+该命令会将扩展入口写入 `~/.omp/agent/extensions/gsd-omp.ts`，并将 GSD agents 投影到 `~/.omp/agent/agents/`。安装后重启 OMP。
+
+如需使用不同的 OMP agent 目录，请先设置 `PI_CODING_AGENT_DIR`：
+
+```bash
+PI_CODING_AGENT_DIR=~/.omp-alt/agent npm run install:omp
+```
+
+扩展入口会通过绝对 checkout 路径导入 `pi/gsd.cjs`。请保留该 checkout；更新源码后，重新执行 `npm run install:omp` 并重启 OMP。
+
+---
+
 ### Kilo
 
 ```bash
