@@ -328,9 +328,9 @@ export function getGlobalConfigHomeFragment(runtime: string): string {
 // cross-runtime agents-dispatch table (out of scope for #2094, which only
 // folds the shared-hooks-install skip).
 const RUNTIME_FLAG_IDS = Object.freeze([
-  'opencode', 'omp', 'kilo', 'codex', 'copilot', 'antigravity', 'cursor',
+  'opencode', 'omp', 'pi', 'kilo', 'codex', 'copilot', 'antigravity', 'cursor',
   'windsurf', 'augment', 'trae', 'qwen', 'hermes', 'codebuddy', 'cline', 'kimi', 'zcode',
-]);
+] as const);
 
 /**
  * Return a frozen map of `is<Runtime>` boolean predicates for the given runtime

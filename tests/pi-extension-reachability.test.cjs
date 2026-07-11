@@ -6,6 +6,7 @@ const path = require('node:path');
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const { spawnSync } = require('node:child_process');
+const { cleanup } = require('./helpers.cjs');
 
 
 const gsdPiExtension = require('../pi/gsd.cjs');
@@ -74,6 +75,8 @@ test('the native phase command injects a task-based execution contract', async (
   assert.match(pi._recorded.messages[0].message.content, /Execute GSD phase `05 --wave 4`/);
   assert.match(pi._recorded.messages[0].message.content, /Use native `task`/);
   assert.match(pi._recorded.messages[0].message.content, /isolated: true/);
+  assert.match(pi._recorded.messages[0].message.content, /Never use `irc wait` for task completion/);
+  assert.match(pi._recorded.messages[0].message.content, /Use `job poll`/);
 
 
   await pi._recorded.commands['gsd-execute-phase'].handler('five', { cwd: path.resolve(__dirname, '..') });
@@ -81,6 +84,34 @@ test('the native phase command injects a task-based execution contract', async (
   assert.equal(pi._recorded.messages.at(-1).options.triggerTurn, false);
 });
 
+test('the OMP bridge blocks IRC completion waits for tracked GSD task jobs', async () => {
+  const pi = mockPi();
+  gsdPiExtension(pi);
+  const ctx = { cwd: path.resolve(__dirname, '..') };
+
+  await pi._recorded.events.tool_call({
+    toolName: 'task',
+    input: { agent: 'gsd-code-fixer', tasks: [{ id: 'FixPhase02ReviewFindings' }] },
+  }, ctx);
+
+  const blocked = await pi._recorded.events.tool_call({
+    toolName: 'irc',
+    input: { op: 'wait', from: 'FixPhase02ReviewFindings' },
+  }, ctx);
+  assert.equal(blocked.block, true);
+  assert.match(blocked.reason, /Do not wait for task completion through IRC/);
+  assert.match(blocked.reason, /job poll/);
+
+  await pi._recorded.events.tool_result({
+    toolName: 'job',
+    content: [],
+    details: { jobs: [{ id: 'FixPhase02ReviewFindings', status: 'completed' }] },
+  }, ctx);
+  assert.equal(await pi._recorded.events.tool_call({
+    toolName: 'irc',
+    input: { op: 'wait', from: 'FixPhase02ReviewFindings' },
+  }, ctx), undefined);
+});
 
 test('the gsd_invoke tool returns the hub result in OMP tool shape', async () => {
   const pi = mockPi();
@@ -123,6 +154,8 @@ test('the OMP agent installer projects native task and isolation guidance', () =
   assert.match(executor, /isolated: true/);
   assert.match(executor, /Never run git worktree yourself/);
   assert.match(executor, /OMP executor result protocol/);
+  assert.match(executor, /Never use `irc wait` for task completion/);
+  assert.match(executor, /MUST terminal-yield immediately after its final verification/);
   assert.match(executor, /\[gsd-task-result\] phase \{PHASE\}/);
   const executeSkill = fs.readFileSync(path.resolve(__dirname, '..', 'skills', 'gsd-execute-phase', 'SKILL.md'), 'utf8');
   assert.match(executeSkill, /<omp_native_execution>/);
@@ -137,6 +170,28 @@ test('the OMP agent installer projects native task and isolation guidance', () =
   const extensionEntry = fs.readFileSync(extensionDestination, 'utf8');
   assert.match(extensionEntry, /import gsdPiExtension from/);
   assert.match(extensionEntry, /pi\/gsd\.cjs/);
+});
+
+test('the generic installer creates a self-contained OMP runtime', () => {
+  const destination = fs.mkdtempSync(path.join(os.tmpdir(), 'gsd-omp-runtime-'));
+  try {
+    const installer = path.resolve(__dirname, '..', 'bin', 'install.js');
+    const result = spawnSync(process.execPath, [installer, '--omp', '--global', '--config-dir', destination], { encoding: 'utf8' });
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(stripAnsi(result.stdout), /Installing for Oh My Pi/);
+    assert.equal(fs.readFileSync(path.join(destination, 'extensions', 'gsd-omp.ts'), 'utf8'), 'import gsdPiExtension from "./gsd-omp.cjs";\n\nexport default gsdPiExtension;\n');
+    assert.ok(fs.existsSync(path.join(destination, 'extensions', 'gsd-omp.cjs')));
+    assert.ok(fs.existsSync(path.join(destination, 'gsd-core', 'bin', 'gsd-tools.cjs')));
+    const executor = fs.readFileSync(path.join(destination, 'agents', 'gsd-executor.md'), 'utf8');
+    assert.match(executor, /OMP native orchestration/);
+    assert.doesNotMatch(executor, /~\/\.claude\//);
+    const { loadUpdateContext } = require('../gsd-core/bin/lib/update-context.cjs');
+    assert.deepEqual(loadUpdateContext({ env: { PI_CODING_AGENT_DIR: destination }, preferredConfigDir: destination, preferredRuntime: 'omp' }), {
+      installedVersion: '1.7.0-rc.5', scope: 'GLOBAL', runtime: 'omp', gsdDir: destination,
+    });
+  } finally {
+    cleanup(destination);
+  }
 });
 
 test('the GSD status line displays the most recent checkpoint', async () => {

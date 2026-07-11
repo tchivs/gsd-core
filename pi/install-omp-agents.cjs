@@ -10,10 +10,6 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 
-const sourceDir = path.resolve(__dirname, '..', 'agents');
-const destinationDir = process.argv[2]
-  ? path.resolve(process.argv[2])
-  : path.join(process.env.PI_CODING_AGENT_DIR || path.join(os.homedir(), '.omp', 'agent'), 'agents');
 const ompTools = 'read, write, edit, bash, glob, grep, lsp, web_search, task';
 
 const ompOrchestration = `
@@ -22,7 +18,7 @@ const ompOrchestration = `
 This runtime's native task tool owns subagents, jobs, progress, cancellation, artifacts, and isolation. When a GSD workflow asks to spawn an Agent(...), dispatch a native task instead; never emulate a subagent with shell backgrounding or a hand-written worktree.
 
 - Use a stable task id and operator-facing description: for example Phase02GapPlanner / Create focused Phase 2 repair plans.
-- Run independent research, planning, verification, and review work as native task jobs. The OMP Job and Subagents panels are the live progress source; wait for the task result rather than polling or inventing a second status display.
+- Run independent research, planning, verification, and review work as native task jobs. The OMP Job and Subagents panels are the live progress source. Never use \`irc wait\` for task completion: IRC is only for quick coordination. The parent MUST use \`job poll\` for spawned task ids, and each task MUST terminal-yield immediately after its final verification so the native result is delivered.
 - For executor work that writes repository files, set isolated: true when that field is available. OMP then provisions and cleans the isolated workspace. Never run git worktree yourself.
 - If isolated execution is unavailable, stop and report that execution cannot safely proceed. Never write executor changes into the primary checkout as a fallback.
 - Research, planning, review, and verification are read-only by default: do not request isolation merely to make them look parallel.
@@ -46,14 +42,24 @@ If execution stops before the plan is complete, emit \`failed\` or \`cancelled\`
 `;
 }
 
-function projectAgent(content, sourcePath) {
+function rewriteRuntimePaths(content, runtimeRoot) {
+  const root = runtimeRoot.replace(/\\/g, '/').replace(/\/$/, '');
+  return content
+    .replace(/~\/\.claude\//g, `${root}/`)
+    .replace(/\$HOME\/\.claude\//g, `${root}/`)
+    .replace(/~\/\.claude\b/g, root)
+    .replace(/\$HOME\/\.claude\b/g, root);
+}
+
+function projectAgent(content, sourcePath, runtimeRoot) {
   const match = content.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n([\s\S]*)$/);
   if (!match) throw new Error(`Missing YAML frontmatter: ${sourcePath}`);
 
-  const [, frontmatter, body] = match;
+  const [, frontmatter, rawBody] = match;
   const name = frontmatter.match(/^name:\s*(.+)$/m)?.[1]?.trim();
   const description = frontmatter.match(/^description:\s*(.+)$/m)?.[1]?.trim();
   if (!name || !description) throw new Error(`Missing name or description: ${sourcePath}`);
+  const body = rewriteRuntimePaths(rawBody, runtimeRoot);
 
   return [
     '---',
@@ -69,14 +75,25 @@ function projectAgent(content, sourcePath) {
   ].join('\n');
 }
 
-fs.mkdirSync(destinationDir, { recursive: true });
-const staged = [];
-for (const entry of fs.readdirSync(sourceDir, { withFileTypes: true })) {
-  if (!entry.isFile() || !/^gsd-.*\.md$/.test(entry.name)) continue;
-  const sourcePath = path.join(sourceDir, entry.name);
-  const targetPath = path.join(destinationDir, entry.name);
-  fs.writeFileSync(targetPath, projectAgent(fs.readFileSync(sourcePath, 'utf8'), sourcePath));
-  staged.push(targetPath);
+function installOmpAgents(destinationDir, sourceDir = path.resolve(__dirname, '..', 'agents'), runtimeRoot = path.dirname(destinationDir)) {
+  fs.mkdirSync(destinationDir, { recursive: true });
+  const staged = [];
+  for (const entry of fs.readdirSync(sourceDir, { withFileTypes: true })) {
+    if (!entry.isFile() || !/^gsd-.*\.md$/.test(entry.name)) continue;
+    const sourcePath = path.join(sourceDir, entry.name);
+    const targetPath = path.join(destinationDir, entry.name);
+    fs.writeFileSync(targetPath, projectAgent(fs.readFileSync(sourcePath, 'utf8'), sourcePath, runtimeRoot));
+    staged.push(targetPath);
+  }
+  return staged;
 }
 
-process.stdout.write(JSON.stringify({ destinationDir, staged: staged.length }) + '\n');
+if (require.main === module) {
+  const destinationDir = process.argv[2]
+    ? path.resolve(process.argv[2])
+    : path.join(process.env.PI_CODING_AGENT_DIR || path.join(os.homedir(), '.omp', 'agent'), 'agents');
+  const staged = installOmpAgents(destinationDir);
+  process.stdout.write(JSON.stringify({ destinationDir, staged: staged.length }) + '\n');
+}
+
+module.exports = { installOmpAgents, projectAgent, rewriteRuntimePaths };

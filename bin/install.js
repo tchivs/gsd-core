@@ -557,7 +557,7 @@ if (hasMinimal && _profileArgRaw) {
 
 function selectRuntimesFromArgs(runtimeArgs) {
   if (runtimeArgs.includes('--all')) {
-    return ['claude', 'kimi', 'kilo', 'opencode', 'omp', 'codex', 'copilot', 'antigravity', 'cursor', 'windsurf', 'augment', 'trae', 'qwen', 'hermes', 'codebuddy', 'cline', 'zcode'];
+    return ['claude', 'kimi', 'kilo', 'opencode', 'omp', 'pi', 'codex', 'copilot', 'antigravity', 'cursor', 'windsurf', 'augment', 'trae', 'qwen', 'hermes', 'codebuddy', 'cline', 'zcode'];
   }
   if (runtimeArgs.includes('--both')) {
     return ['claude', 'opencode'];
@@ -567,6 +567,7 @@ function selectRuntimesFromArgs(runtimeArgs) {
   if (runtimeArgs.includes('--claude')) selected.push('claude');
   if (runtimeArgs.includes('--opencode')) selected.push('opencode');
   if (runtimeArgs.includes('--omp')) selected.push('omp');
+  if (runtimeArgs.includes('--pi')) selected.push('pi');
   if (runtimeArgs.includes('--kilo')) selected.push('kilo');
   if (runtimeArgs.includes('--codex')) selected.push('codex');
   if (runtimeArgs.includes('--copilot')) selected.push('copilot');
@@ -11389,13 +11390,14 @@ const runtimeMap = {
   '10': 'kimi',
   '11': 'kilo',
   '12': 'opencode',
-  '13': 'qwen',
-  '14': 'trae',
-  '15': 'windsurf',
-  '16': 'zcode',
-  '17': 'omp'
+  '13': 'pi',
+  '14': 'qwen',
+  '15': 'trae',
+  '16': 'windsurf',
+  '17': 'zcode',
+  '18': 'omp'
 };
-const allRuntimes = ['claude', 'antigravity', 'augment', 'cline', 'codebuddy', 'codex', 'copilot', 'cursor', 'hermes', 'kimi', 'kilo', 'opencode', 'omp', 'qwen', 'trae', 'windsurf', 'zcode'];
+const allRuntimes = ['claude', 'antigravity', 'augment', 'cline', 'codebuddy', 'codex', 'copilot', 'cursor', 'hermes', 'kimi', 'kilo', 'opencode', 'omp', 'pi', 'qwen', 'trae', 'windsurf', 'zcode'];
 const ALL_RUNTIMES_OPTION = '18';
 
 /**
@@ -11416,11 +11418,12 @@ function buildRuntimePromptText() {
   ${cyan}10${reset}) Kimi         ${dim}(~/.config/agents, then ~/.agents if existing)${reset}
   ${cyan}11${reset}) Kilo         ${dim}(~/.config/kilo)${reset}
   ${cyan}12${reset}) OpenCode     ${dim}(~/.config/opencode)${reset}
-  ${cyan}13${reset}) Qwen Code    ${dim}(~/.qwen)${reset}
-  ${cyan}14${reset}) Trae         ${dim}(~/.trae)${reset}
-  ${cyan}15${reset}) Windsurf     ${dim}(~/.codeium/windsurf)${reset}
-  ${cyan}16${reset}) ZCode        ${dim}(~/.zcode)${reset}
-  ${cyan}17${reset}) Oh My Pi     ${dim}(~/.omp/agent)${reset}
+  ${cyan}13${reset}) pi           ${dim}(~/.pi/agent)${reset}
+  ${cyan}14${reset}) Qwen Code    ${dim}(~/.qwen)${reset}
+  ${cyan}15${reset}) Trae         ${dim}(~/.trae)${reset}
+  ${cyan}16${reset}) Windsurf     ${dim}(~/.codeium/windsurf)${reset}
+  ${cyan}17${reset}) ZCode        ${dim}(~/.zcode)${reset}
+  ${cyan}18${reset}) Oh My Pi     ${dim}(~/.omp/agent)${reset}
   ${cyan}18${reset}) All
 
   ${dim}Select multiple: 1,2,6 or 1 2 6${reset}
