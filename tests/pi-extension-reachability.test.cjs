@@ -77,6 +77,8 @@ test('the native phase command injects a task-based execution contract', async (
   assert.match(pi._recorded.messages[0].message.content, /Use native `task`/);
   assert.match(pi._recorded.messages[0].message.content, /isolated: true/);
   assert.match(pi._recorded.messages[0].message.content, /never fall back to main-checkout writes or manual `git worktree` commands/i);
+  assert.match(pi._recorded.messages[0].message.content, /uncommitted handoff/);
+  assert.match(pi._recorded.messages[0].message.content, /create the plan's required commit in the parent checkout/);
   assert.match(pi._recorded.messages[0].message.content, /Never use `irc wait` for task completion/);
   assert.match(pi._recorded.messages[0].message.content, /Use `job poll`/);
 
