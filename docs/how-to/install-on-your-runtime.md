@@ -153,9 +153,11 @@ OMP is global-only. A local install is rejected because OMP does not discover pr
 
 #### Updating OMP
 
-Run `/gsd-update` from OMP. It detects `~/.omp/agent/` (or `PI_CODING_AGENT_DIR`), reinstalls the managed OMP extension, adapter, agents, skills, and GSD runtime, then prompts you to restart OMP.
+For an npm-managed OMP installation, run `/gsd-update` from OMP. It detects `~/.omp/agent/` (or `PI_CODING_AGENT_DIR`), reinstalls the managed extension, adapter, agents, skills, and GSD runtime, then prompts you to restart OMP.
 
-For adapter development only, `npm run install:omp` remains available to project local changes into an OMP agent directory. It is not the normal user installation or update path.
+If the OMP runtime was installed from a Git checkout, `/gsd-update` stops before replacing it with an npm package and prints the checkout update command instead. This preserves local fork changes.
+
+For adapter development only, `npm run install:omp` remains available to project local changes into an OMP agent directory; it is not the normal user installation or update path.
 
 ---
 

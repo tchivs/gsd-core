@@ -7345,6 +7345,22 @@ function uninstall(isGlobal, runtime = DEFAULT_RUNTIME) {
     }
   }
 
+  if (runtime === 'omp') {
+    const extensionsDir = path.join(targetDir, 'extensions');
+    let removedExtensions = 0;
+    for (const file of ['gsd-omp.ts', 'gsd-omp.cjs']) {
+      try {
+        fs.unlinkSync(path.join(extensionsDir, file));
+        removedExtensions++;
+      } catch (_) { /* missing or user-owned path */ }
+    }
+    if (removedExtensions > 0) {
+      removedCount++;
+      console.log(`  ${green}✓${reset} Removed ${removedExtensions} OMP extension file(s)`);
+    }
+    try { fs.rmdirSync(extensionsDir); } catch (_) { /* user extensions remain */ }
+  }
+
   // 4a. Remove scripts/changeset/ and scripts/lib/ (#935)
   // GSD-managed files only: enumerate the exact set the installer writes.
   // Any file NOT in this set is user-owned and must survive uninstall.
@@ -8145,6 +8161,15 @@ function writeManifest(configDir, runtime = DEFAULT_RUNTIME, options = {}) {
     if (fs.existsSync(pluginInstallPath)) {
       manifest.files[`${_npM.dir}/${_npM.file}`] = fileHash(pluginInstallPath);
     }
+  }
+
+  if (runtime === 'omp') {
+    for (const file of ['gsd-omp.ts', 'gsd-omp.cjs']) {
+      const extensionPath = path.join(configDir, 'extensions', file);
+      if (fs.existsSync(extensionPath)) manifest.files[`extensions/${file}`] = fileHash(extensionPath);
+    }
+    const sourceMarkerPath = path.join(configDir, 'gsd-core', 'OMP-SOURCE.json');
+    if (fs.existsSync(sourceMarkerPath)) manifest.files['gsd-core/OMP-SOURCE.json'] = fileHash(sourceMarkerPath);
   }
 
   fs.writeFileSync(path.join(configDir, MANIFEST_NAME), JSON.stringify(manifest, null, 2));
@@ -9472,8 +9497,18 @@ function install(isGlobal, runtime = DEFAULT_RUNTIME, options = {}) {
       fs.mkdirSync(extensionsDir, { recursive: true });
       fs.copyFileSync(adapterSource, adapterTarget);
       fs.writeFileSync(extensionTarget, 'import gsdPiExtension from "./gsd-omp.cjs";\n\nexport default gsdPiExtension;\n');
-      const { installOmpAgents } = require(path.join(src, 'pi', 'install-omp-agents.cjs'));
-      installOmpAgents(agentsDest, path.join(src, 'agents'), targetDir);
+      const sourceMarkerPath = path.join(targetDir, 'gsd-core', 'OMP-SOURCE.json');
+      if (fs.existsSync(path.join(src, '.git'))) {
+        fs.writeFileSync(sourceMarkerPath, JSON.stringify({ source: 'checkout', root: src }, null, 2) + '\n');
+      } else {
+        fs.rmSync(sourceMarkerPath, { force: true });
+      }
+      const { installOmpSkills } = require(path.join(src, 'pi', 'install-omp-skills.cjs'));
+      installOmpSkills(path.join(targetDir, 'skills'), path.join(src, 'skills'));
+      if (!isMinimalMode(_effectiveInstallMode)) {
+        const { installOmpAgents } = require(path.join(src, 'pi', 'install-omp-agents.cjs'));
+        installOmpAgents(agentsDest, path.join(src, 'agents'), targetDir);
+      }
       if (verifyFileInstalled(adapterTarget, 'OMP adapter') && verifyFileInstalled(extensionTarget, 'OMP extension')) {
         console.log(`  ${green}✓${reset} Installed OMP extension`);
       } else {

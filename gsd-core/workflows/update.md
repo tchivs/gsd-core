@@ -353,6 +353,30 @@ Then inform the user:
 <step name="run_update">
 Run the update using the install type detected in step 1:
 
+Before building the npm installer command, protect a checkout-managed OMP install. A source checkout records `gsd-core/OMP-SOURCE.json`; `/gsd-update` must not overwrite it with an npm package:
+
+```bash
+OMP_SOURCE_MARKER="$GSD_DIR/gsd-core/OMP-SOURCE.json"
+if [ "$TARGET_RUNTIME" = "omp" ] && [ -f "$OMP_SOURCE_MARKER" ]; then
+  OMP_SOURCE_ROOT="$(node -e 'const fs=require("node:fs"); try { console.log(JSON.parse(fs.readFileSync(process.argv[1], "utf8")).root || ""); } catch {}' "$OMP_SOURCE_MARKER")"
+  cat <<EOF
+## GSD Update
+
+This OMP runtime was installed from a source checkout. /gsd-update only installs npm releases and would replace your checkout-managed adapter.
+
+Update it from the recorded checkout instead:
+
+    cd ${OMP_SOURCE_ROOT:-<checkout>}
+    git pull --ff-only
+    npm install
+    node bin/install.js --omp --global
+EOF
+  exit 0
+fi
+```
+
+<critical>Do not continue to the npm install step when this guard exits.</critical>
+
 Build runtime flag from step 1:
 ```bash
 RUNTIME_FLAG="--$TARGET_RUNTIME"

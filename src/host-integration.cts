@@ -584,7 +584,7 @@ const EXTENSION_EVENT_SURFACES: Readonly<Record<string, readonly string[]>> = Ob
     'pre_gateway_dispatch', 'pre_approval_request',
     'transform_tool_result',
   ]),
-  pi: Object.freeze(['tool_call']),
+  pi: Object.freeze(['session_start', 'turn_end', 'tool_call', 'tool_result']),
   none: Object.freeze([]),
 });
 
