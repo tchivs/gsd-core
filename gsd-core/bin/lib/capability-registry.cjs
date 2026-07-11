@@ -2958,6 +2958,9 @@ const capabilities = {
         "stateIO": "filesystem",
         "transport": "mcp",
         "runtime": "electron"
+      },
+      "hostBehaviors": {
+        "skipSharedHooksInstall": true
       }
     }
   }
@@ -5507,6 +5510,9 @@ const runtimes = {
         "stateIO": "filesystem",
         "transport": "mcp",
         "runtime": "electron"
+      },
+      "hostBehaviors": {
+        "skipSharedHooksInstall": true
       }
     }
   }
