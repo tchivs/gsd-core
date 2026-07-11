@@ -410,11 +410,13 @@ test('the first interactive GSD session persists a chosen language once', async 
     setStatus: (key, text) => statuses.push({ key, text }),
   } };
   await pi._recorded.events.session_start({}, ctx);
+  await new Promise(setImmediate);
   await pi._recorded.events.session_start({}, ctx);
+  await new Promise(setImmediate);
 
   assert.equal(promptCount, 1);
   assert.equal(JSON.parse(fs.readFileSync(configPath, 'utf8')).response_language, 'Simplified Chinese');
-  assert.deepEqual(statuses[0], { key: 'gsd', text: 'GSD 01 · 执行中' });
+  assert.deepEqual(statuses.at(-1), { key: 'gsd', text: 'GSD 01 · 执行中' });
   assert.ok(notices.some(({ message }) => message === 'GSD language set to Simplified Chinese'));
 });
 
@@ -428,13 +430,16 @@ test('the language prompt retries after cancellation and tolerates a minimal UI'
   const inputs = ['', 'English'];
   const ctx = { cwd, hasUI: true, ui: { input: async () => inputs.shift() } };
   await pi._recorded.events.session_start({}, ctx);
+  await new Promise(setImmediate);
   await pi._recorded.events.session_start({}, ctx);
+  await new Promise(setImmediate);
   assert.equal(JSON.parse(fs.readFileSync(configPath, 'utf8')).response_language, 'English');
   const secondCwd = fs.mkdtempSync(path.join(os.tmpdir(), 'gsd-omp-second-language-'));
   fs.mkdirSync(path.join(secondCwd, '.planning'));
   const secondConfigPath = path.join(secondCwd, '.planning', 'config.json');
   fs.writeFileSync(secondConfigPath, JSON.stringify({}));
   await pi._recorded.events.session_start({}, { cwd: secondCwd, hasUI: true, ui: { input: async () => 'Simplified Chinese' } });
+  await new Promise(setImmediate);
   assert.equal(JSON.parse(fs.readFileSync(secondConfigPath, 'utf8')).response_language, 'Simplified Chinese');
   const minimalCwd = fs.mkdtempSync(path.join(os.tmpdir(), 'gsd-omp-minimal-ui-'));
   fs.mkdirSync(path.join(minimalCwd, '.planning'));
@@ -443,6 +448,30 @@ test('the language prompt retries after cancellation and tolerates a minimal UI'
   gsdPiExtension(minimalPi);
   await minimalPi._recorded.events.session_start({}, { cwd: minimalCwd, hasUI: true, ui: {} });
   assert.deepEqual(JSON.parse(fs.readFileSync(path.join(minimalCwd, '.planning', 'config.json'), 'utf8')), {});
+});
+
+test('an unresolved language dialog never blocks the session-start handler', async () => {
+  const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'gsd-omp-language-timeout-'));
+  fs.mkdirSync(path.join(cwd, '.planning'));
+  const configPath = path.join(cwd, '.planning', 'config.json');
+  fs.writeFileSync(configPath, JSON.stringify({}));
+  const pi = mockPi();
+  gsdPiExtension(pi);
+  let resolveInput;
+  const input = new Promise((resolve) => { resolveInput = resolve; });
+  let sessionStartResolved = false;
+  const sessionStart = Promise.resolve(pi._recorded.events.session_start({}, {
+    cwd,
+    hasUI: true,
+    ui: { input: () => input },
+  })).then(() => { sessionStartResolved = true; });
+
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.equal(sessionStartResolved, true);
+  resolveInput('English');
+  await sessionStart;
+  await new Promise(setImmediate);
+  assert.equal(JSON.parse(fs.readFileSync(configPath, 'utf8')).response_language, 'English');
 });
 test('the GSD console separates blockers and prepares a safe next step', async () => {
   const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'gsd-omp-console-'));

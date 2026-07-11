@@ -226,6 +226,7 @@ module.exports = function gsdPiExtension(pi) {
   const path = require('node:path');
   const advisedFiles = new Set();
   const activeGsdTaskIds = new Set();
+  const languagePromptCwds = new Set();
 
   function trackGsdTaskRequest(event) {
     const input = event?.input;
@@ -464,15 +465,24 @@ module.exports = function gsdPiExtension(pi) {
 
   async function promptForLanguage(ctx) {
     const config = readConfig(ctx.cwd);
-    if (!ctx.hasUI || !config || config.response_language || typeof ctx.ui?.input !== 'function') return;
+    if (!ctx.hasUI || !config || config.response_language || typeof ctx.ui?.input !== 'function') return false;
     const language = String(await ctx.ui.input(
       'GSD language / GSD 界面语言',
       '简体中文 / Simplified Chinese / English',
     ) || '').trim();
-    if (!language) return;
-    if (persistResponseLanguage(ctx.cwd, config, language)) {
-      ctx.ui.notify?.(`GSD language set to ${language}`, 'info');
-    }
+    if (!language) return false;
+    if (!persistResponseLanguage(ctx.cwd, config, language)) return false;
+    ctx.ui.notify?.(`GSD language set to ${language}`, 'info');
+    return true;
+  }
+
+  function scheduleLanguagePrompt(ctx) {
+    if (languagePromptCwds.has(ctx.cwd)) return;
+    languagePromptCwds.add(ctx.cwd);
+    void promptForLanguage(ctx)
+      .then((changed) => { if (changed) updateStatus(ctx); })
+      .catch(() => {})
+      .finally(() => languagePromptCwds.delete(ctx.cwd));
   }
 
   function stateReminder(cwd) {
@@ -992,8 +1002,8 @@ OMP dispatch contract:
     }
   });
 
-  pi.on('session_start', async (_event, ctx) => {
-    await promptForLanguage(ctx);
+  pi.on('session_start', (_event, ctx) => {
+    scheduleLanguagePrompt(ctx);
     updateStatus(ctx);
     if (!ctx.hasUI) return;
     const reminder = stateReminder(ctx.cwd);
