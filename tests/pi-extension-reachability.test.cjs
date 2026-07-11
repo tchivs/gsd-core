@@ -157,12 +157,6 @@ test('the OMP agent installer projects native task and isolation guidance', () =
   assert.match(executor, /Never use `irc wait` for task completion/);
   assert.match(executor, /MUST terminal-yield immediately after its final verification/);
   assert.match(executor, /\[gsd-task-result\] phase \{PHASE\}/);
-  const executeSkill = fs.readFileSync(path.resolve(__dirname, '..', 'skills', 'gsd-execute-phase', 'SKILL.md'), 'utf8');
-  assert.match(executeSkill, /<omp_native_execution>/);
-  assert.match(executeSkill, /Native `task` is the executor primitive/);
-  const progressSkill = fs.readFileSync(path.resolve(__dirname, '..', 'skills', 'gsd-progress', 'SKILL.md'), 'utf8');
-  assert.match(progressSkill, /<omp_artifact_handling>/);
-  assert.match(progressSkill, /truncated summary glob may supply recent-work examples only/);
   const extensionDestination = path.join(destination, 'extensions', 'gsd-omp.ts');
   const extensionInstaller = path.resolve(__dirname, '..', 'pi', 'install-omp-extension.cjs');
   const extensionResult = spawnSync(process.execPath, [extensionInstaller, extensionDestination], { encoding: 'utf8' });
@@ -185,10 +179,29 @@ test('the generic installer creates a self-contained OMP runtime', () => {
     const executor = fs.readFileSync(path.join(destination, 'agents', 'gsd-executor.md'), 'utf8');
     assert.match(executor, /OMP native orchestration/);
     assert.doesNotMatch(executor, /~\/\.claude\//);
+    const executeSkill = fs.readFileSync(path.join(destination, 'skills', 'gsd-execute-phase', 'SKILL.md'), 'utf8');
+    assert.match(executeSkill, /<omp_native_execution>/);
+    assert.match(executeSkill, /Native `task` is the executor primitive/);
+    const progressSkill = fs.readFileSync(path.join(destination, 'skills', 'gsd-progress', 'SKILL.md'), 'utf8');
+    assert.match(progressSkill, /<omp_artifact_handling>/);
+    assert.match(progressSkill, /truncated summary glob may supply recent-work examples only/);
+    const { extensionEventSurfaceFor } = require('../gsd-core/bin/lib/host-integration.cjs');
+    assert.deepEqual(extensionEventSurfaceFor('pi'), ['session_start', 'turn_end', 'tool_call', 'tool_result']);
     const { loadUpdateContext } = require('../gsd-core/bin/lib/update-context.cjs');
     assert.deepEqual(loadUpdateContext({ env: { PI_CODING_AGENT_DIR: destination }, preferredConfigDir: destination, preferredRuntime: 'omp' }), {
       installedVersion: '1.7.0-rc.5', scope: 'GLOBAL', runtime: 'omp', gsdDir: destination,
     });
+    const manifest = JSON.parse(fs.readFileSync(path.join(destination, 'gsd-file-manifest.json'), 'utf8'));
+    assert.ok(manifest.files['extensions/gsd-omp.ts']);
+    assert.ok(manifest.files['extensions/gsd-omp.cjs']);
+    assert.ok(manifest.files['gsd-core/OMP-SOURCE.json']);
+    const minimalResult = spawnSync(process.execPath, [installer, '--omp', '--global', '--minimal', '--config-dir', destination], { encoding: 'utf8' });
+    assert.equal(minimalResult.status, 0, minimalResult.stderr);
+    assert.equal(fs.existsSync(path.join(destination, 'agents', 'gsd-executor.md')), false);
+    const uninstallResult = spawnSync(process.execPath, [installer, '--omp', '--global', '--uninstall', '--config-dir', destination], { encoding: 'utf8' });
+    assert.equal(uninstallResult.status, 0, uninstallResult.stderr);
+    assert.equal(fs.existsSync(path.join(destination, 'extensions', 'gsd-omp.ts')), false);
+    assert.equal(fs.existsSync(path.join(destination, 'extensions', 'gsd-omp.cjs')), false);
   } finally {
     cleanup(destination);
   }
