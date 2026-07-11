@@ -327,6 +327,11 @@ module.exports = function gsdPiExtension(pi) {
     }
   }
 
+  function isGsdProject(cwd) {
+    const planningDir = path.join(cwd, '.planning');
+    return ['PROJECT.md', 'ROADMAP.md', 'STATE.md'].some((name) => fs.existsSync(path.join(planningDir, name)));
+  }
+
   function nextActionPath(cwd) {
     return path.join(cwd, '.planning', '.omp-next-action.json');
   }
@@ -465,13 +470,14 @@ module.exports = function gsdPiExtension(pi) {
 
   async function promptForLanguage(ctx) {
     const config = readConfig(ctx.cwd);
-    if (!ctx.hasUI || !config || config.response_language || typeof ctx.ui?.input !== 'function') return false;
-    const language = String(await ctx.ui.input(
-      'GSD language / GSD 界面语言',
-      '简体中文 / Simplified Chinese / English',
-    ) || '').trim();
-    if (!language) return false;
-    if (!persistResponseLanguage(ctx.cwd, config, language)) return false;
+    if (!ctx.hasUI || !isGsdProject(ctx.cwd) || !config || config.response_language || typeof ctx.ui?.select !== 'function') return false;
+    const selection = await ctx.ui.select('GSD language / GSD 界面语言', [
+      { label: '简体中文', description: 'Use Simplified Chinese for GSD status and guidance.' },
+      { label: 'English', description: 'Use English for GSD status and guidance.' },
+    ]);
+    const label = typeof selection === 'string' ? selection : selection?.label || selection?.value;
+    const language = label === '简体中文' ? 'Simplified Chinese' : label === 'English' ? 'English' : null;
+    if (!language || !persistResponseLanguage(ctx.cwd, config, language)) return false;
     ctx.ui.notify?.(`GSD language set to ${language}`, 'info');
     return true;
   }

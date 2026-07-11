@@ -405,7 +405,11 @@ test('the first interactive GSD session persists a chosen language once', async 
   const statuses = [];
   const notices = [];
   const ctx = { cwd, hasUI: true, ui: {
-    input: async () => { promptCount += 1; return 'Simplified Chinese'; },
+    select: async (_title, options) => {
+      promptCount += 1;
+      assert.deepEqual(options.map(({ label }) => label), ['简体中文', 'English']);
+      return '简体中文';
+    },
     notify: (message, level) => notices.push({ message, level }),
     setStatus: (key, text) => statuses.push({ key, text }),
   } };
@@ -425,10 +429,11 @@ test('the language prompt retries after cancellation and tolerates a minimal UI'
   fs.mkdirSync(path.join(cwd, '.planning'));
   const configPath = path.join(cwd, '.planning', 'config.json');
   fs.writeFileSync(configPath, JSON.stringify({}));
+  fs.writeFileSync(path.join(cwd, '.planning', 'STATE.md'), '---\ncurrent_phase: "01"\nstatus: executing\n---\n');
   const pi = mockPi();
   gsdPiExtension(pi);
-  const inputs = ['', 'English'];
-  const ctx = { cwd, hasUI: true, ui: { input: async () => inputs.shift() } };
+  const selections = [undefined, 'English'];
+  const ctx = { cwd, hasUI: true, ui: { select: async () => selections.shift() } };
   await pi._recorded.events.session_start({}, ctx);
   await new Promise(setImmediate);
   await pi._recorded.events.session_start({}, ctx);
@@ -438,16 +443,36 @@ test('the language prompt retries after cancellation and tolerates a minimal UI'
   fs.mkdirSync(path.join(secondCwd, '.planning'));
   const secondConfigPath = path.join(secondCwd, '.planning', 'config.json');
   fs.writeFileSync(secondConfigPath, JSON.stringify({}));
-  await pi._recorded.events.session_start({}, { cwd: secondCwd, hasUI: true, ui: { input: async () => 'Simplified Chinese' } });
+  fs.writeFileSync(path.join(secondCwd, '.planning', 'STATE.md'), '---\ncurrent_phase: "01"\nstatus: executing\n---\n');
+  await pi._recorded.events.session_start({}, { cwd: secondCwd, hasUI: true, ui: { select: async () => '简体中文' } });
   await new Promise(setImmediate);
   assert.equal(JSON.parse(fs.readFileSync(secondConfigPath, 'utf8')).response_language, 'Simplified Chinese');
   const minimalCwd = fs.mkdtempSync(path.join(os.tmpdir(), 'gsd-omp-minimal-ui-'));
   fs.mkdirSync(path.join(minimalCwd, '.planning'));
   fs.writeFileSync(path.join(minimalCwd, '.planning', 'config.json'), JSON.stringify({}));
+  fs.writeFileSync(path.join(minimalCwd, '.planning', 'STATE.md'), '---\ncurrent_phase: "01"\nstatus: executing\n---\n');
   const minimalPi = mockPi();
   gsdPiExtension(minimalPi);
   await minimalPi._recorded.events.session_start({}, { cwd: minimalCwd, hasUI: true, ui: {} });
   assert.deepEqual(JSON.parse(fs.readFileSync(path.join(minimalCwd, '.planning', 'config.json'), 'utf8')), {});
+});
+
+test('the language selector skips directories that are not GSD projects', async () => {
+  const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'gsd-omp-not-project-'));
+  fs.mkdirSync(path.join(cwd, '.planning'));
+  const configPath = path.join(cwd, '.planning', 'config.json');
+  fs.writeFileSync(configPath, JSON.stringify({}));
+  const pi = mockPi();
+  gsdPiExtension(pi);
+  let selectCount = 0;
+  await pi._recorded.events.session_start({}, {
+    cwd,
+    hasUI: true,
+    ui: { select: async () => { selectCount += 1; return 'English'; } },
+  });
+  await new Promise(setImmediate);
+  assert.equal(selectCount, 0);
+  assert.deepEqual(JSON.parse(fs.readFileSync(configPath, 'utf8')), {});
 });
 
 test('an unresolved language dialog never blocks the session-start handler', async () => {
@@ -455,20 +480,21 @@ test('an unresolved language dialog never blocks the session-start handler', asy
   fs.mkdirSync(path.join(cwd, '.planning'));
   const configPath = path.join(cwd, '.planning', 'config.json');
   fs.writeFileSync(configPath, JSON.stringify({}));
+  fs.writeFileSync(path.join(cwd, '.planning', 'STATE.md'), '---\ncurrent_phase: "01"\nstatus: executing\n---\n');
   const pi = mockPi();
   gsdPiExtension(pi);
-  let resolveInput;
-  const input = new Promise((resolve) => { resolveInput = resolve; });
+  let resolveSelection;
+  const selection = new Promise((resolve) => { resolveSelection = resolve; });
   let sessionStartResolved = false;
   const sessionStart = Promise.resolve(pi._recorded.events.session_start({}, {
     cwd,
     hasUI: true,
-    ui: { input: () => input },
+    ui: { select: () => selection },
   })).then(() => { sessionStartResolved = true; });
 
   await new Promise((resolve) => setTimeout(resolve, 20));
   assert.equal(sessionStartResolved, true);
-  resolveInput('English');
+  resolveSelection('English');
   await sessionStart;
   await new Promise(setImmediate);
   assert.equal(JSON.parse(fs.readFileSync(configPath, 'utf8')).response_language, 'English');
