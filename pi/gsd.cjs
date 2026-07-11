@@ -921,6 +921,7 @@ module.exports = function gsdPiExtension(pi) {
 Execute GSD phase \`${phaseCommand}\` end-to-end using the execute-phase workflow and its existing safety gates.
 
 OMP dispatch contract:
+- This OMP contract takes precedence over runtime-specific \`Agent(...)\` or \`isolation="worktree"\` directions in execute-phase: on OMP, native \`task\` with \`isolated: true\` is the only valid isolated executor dispatch.
 - Use native \`task\` for every non-interactive executor dispatch. One plan is one task; independent plans in a wave are one task batch. Never use \`irc wait\` for task completion: IRC is coordination-only. Use \`job poll\` for the spawned task ids and consume the native task result before dispatching the next wave.
 - Assign each executor a stable id \`Phase${phase}Plan{PLAN}Executor\`, an operator-facing description, the \`gsd-executor\` role, the complete plan assignment, and the relevant GSD context paths.
 - Every executor that writes repository files MUST request \`isolated: true\`. If isolated execution is unavailable, stop and report the blocked plan; never fall back to main-checkout writes or manual \`git worktree\` commands.

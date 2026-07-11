@@ -75,6 +75,7 @@ test('the native phase command injects a task-based execution contract', async (
   assert.equal(pi._recorded.messages[0].options.triggerTurn, true);
   assert.match(pi._recorded.messages[0].message.content, /Execute GSD phase `05 --wave 4`/);
   assert.match(pi._recorded.messages[0].message.content, /Use native `task`/);
+  assert.match(pi._recorded.messages[0].message.content, /takes precedence over runtime-specific `Agent\(\.\.\.\)` or `isolation="worktree"` directions/);
   assert.match(pi._recorded.messages[0].message.content, /isolated: true/);
   assert.match(pi._recorded.messages[0].message.content, /never fall back to main-checkout writes or manual `git worktree` commands/i);
   assert.match(pi._recorded.messages[0].message.content, /uncommitted handoff/);
