@@ -448,7 +448,7 @@ module.exports = function gsdPiExtension(pi) {
   }
 
   function extractTaskResult(output) {
-    const match = String(output || '').match(/^\s*\[gsd-task-result\]\s+phase\s+(\d+)\s+plan\s+([^\s]+)\s+task\s+([A-Za-z0-9_.-]+)\s+(completed|failed|cancelled)\s*$/mi);
+    const match = String(output || '').match(/\[gsd-task-result\]\s+phase\s+(\d+)\s+plan\s+([^\s]+)\s+task\s+([A-Za-z0-9_.-]+)\s+(completed|failed|cancelled)(?=$|[\s"'`<])/i);
     if (!match) return null;
     const [, phase, plan, task, status] = match;
     return { phase: Number(phase), plan, task, status };

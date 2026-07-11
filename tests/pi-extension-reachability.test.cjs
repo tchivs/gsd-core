@@ -262,12 +262,19 @@ test('the OMP adapter persists native executor task results', async () => {
   gsdPiExtension(pi);
   const result = gsdPiExtension._internals.extractTaskResult('[gsd-task-result] phase 05 plan 05-08 task Phase05Plan0508Executor completed');
   assert.deepEqual(result, { phase: 5, plan: '05-08', task: 'Phase05Plan0508Executor', status: 'completed' });
+  assert.deepEqual(
+    gsdPiExtension._internals.extractTaskResult('{"message":"[gsd-task-result] phase 05 plan 05-08 task Phase05Plan0508Executor failed"}'),
+    { ...result, status: 'failed' },
+  );
 
   const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'gsd-omp-results-'));
   fs.mkdirSync(path.join(cwd, '.planning'));
   fs.writeFileSync(path.join(cwd, '.planning', 'STATE.md'), '---\ncurrent_phase: "05"\nstatus: executing\n---\n');
   await pi._recorded.events.tool_result({ content: [{ type: 'text', text: '[gsd-task-result] phase 05 plan 05-08 task Phase05Plan0508Executor completed' }] }, { cwd });
-  await pi._recorded.events.tool_result({ content: [{ type: 'text', text: '[gsd-task-result] phase 05 plan 05-08 task Phase05Plan0508Executor failed' }] }, { cwd });
+  await pi._recorded.events.tool_result({
+    toolName: 'job',
+    content: [{ type: 'text', text: '## Completed\n<output>{"message":"[gsd-task-result] phase 05 plan 05-08 task Phase05Plan0508Executor failed"}</output>' }],
+  }, { cwd });
   assert.deepEqual(JSON.parse(fs.readFileSync(path.join(cwd, '.planning', '.omp-task-results.json'), 'utf8')), [{ ...result, status: 'failed' }]);
 });
 
