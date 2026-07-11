@@ -13,7 +13,7 @@ Detect the installed GSD version, scope, runtime, and config dir.
 
 First, derive `PREFERRED_CONFIG_DIR` and `PREFERRED_RUNTIME` from the invoking prompt's `execution_context` path — this is the one input only the workflow knows:
 - If the path contains `/gsd-core/workflows/update.md`, strip that suffix and store the remainder as `PREFERRED_CONFIG_DIR`.
-- Infer `PREFERRED_RUNTIME` from the path: `/.codex/` -> `codex`; `/.gemini/antigravity-ide/`, `/.gemini/antigravity-cli/`, `/.gemini/antigravity/`, `/.agents/` or `/.agent/` -> `antigravity` (`.agents` is the canonical local Antigravity install dir (#791); `.agent` is the legacy form (#503); see bin/install.js `getDirName('antigravity')`); `/.config/kilo/` or `/.kilo/` -> `kilo`; `/.config/opencode/` or `/.opencode/` -> `opencode`; otherwise `claude`.
+- Infer `PREFERRED_RUNTIME` from the path: `/.omp/agent/` -> `omp`; `/.codex/` -> `codex`; `/.gemini/antigravity-ide/`, `/.gemini/antigravity-cli/`, `/.gemini/antigravity/`, `/.agents/` or `/.agent/` -> `antigravity` (`.agents` is the canonical local Antigravity install dir (#791); `.agent` is the legacy form (#503); see bin/install.js `getDirName('antigravity')`); `/.config/kilo/` or `/.kilo/` -> `kilo`; `/.config/opencode/` or `/.opencode/` -> `opencode`; otherwise `claude`.
 
 Then resolve the install context via the deterministic projection (#498). **Do NOT re-derive scope, runtime, or version by hand** — `update-context` owns that cascade in tested code (`gsd-core/bin/lib/update-context.cjs`), the same way `check-latest-version` owns the package name (#2992):
 
@@ -64,11 +64,11 @@ echo "$GSD_DIR"
 Parse output:
 - Line 1 = installed version (`0.0.0` means unknown version)
 - Line 2 = install scope (`LOCAL`, `GLOBAL`, or `UNKNOWN`)
-- Line 3 = target runtime (`claude`, `opencode`, `kilo`, `codex`, `antigravity`)
-- Line 4 = resolved GSD config dir (e.g. `/Users/me/.claude`, `/Users/me/.gemini`); empty if scope is `UNKNOWN`. Capture this as `GSD_DIR` and pass it to subsequent steps so they don't re-derive the runtime path.
+- Line 3 = target runtime (`claude`, `omp`, `opencode`, `kilo`, `codex`, `antigravity`)
+- Line 4 = resolved GSD config dir (e.g. `/Users/me/.claude`, `/Users/me/.omp/agent`); empty if scope is `UNKNOWN`. Capture this as `GSD_DIR` and pass it to subsequent steps so they don't re-derive the runtime path.
 - If scope is `UNKNOWN`, proceed to install using the `--claude --global` fallback.
 
-`update-context` reproduces the previous detection cascade — preferred-config-dir fast path, local-over-global with same-path dedup (so `CWD=$HOME` does not misdetect as LOCAL), env-var overrides (`CLAUDE_CONFIG_DIR`, `OPENCODE_CONFIG_DIR`, `KILO_CONFIG`, `XDG_CONFIG_HOME`, `CODEX_HOME`, …), and semver validation — but as a tested projection rather than ~280 lines of inline bash. Branch coverage lives in `tests/issue-498-update-context.test.cjs`.
+`update-context` reproduces the previous detection cascade — preferred-config-dir fast path, local-over-global with same-path dedup (so `CWD=$HOME` does not misdetect as LOCAL), env-var overrides (`CLAUDE_CONFIG_DIR`, `PI_CODING_AGENT_DIR`, `OPENCODE_CONFIG_DIR`, `KILO_CONFIG`, `XDG_CONFIG_HOME`, `CODEX_HOME`, …), and semver validation — but as a tested projection rather than ~280 lines of inline bash. Branch coverage lives in `tests/issue-498-update-context.test.cjs`.
 
 If multiple runtime installs are detected and the invoking runtime cannot be determined from execution_context, ask the user which runtime to update before running install.
 
@@ -242,9 +242,10 @@ rm -f "$CHANGELOG_TMP"
 - `commands/gsd/` will be wiped and replaced
 - `gsd-core/` will be wiped and replaced
 - `agents/gsd-*` files will be replaced
+- On OMP, `extensions/gsd-omp.ts` and `extensions/gsd-omp.cjs` will be replaced
 
 (Paths are relative to detected runtime install location:
-global: `~/.claude/`, `~/.config/opencode/`, `~/.opencode/`, `~/.gemini/`, `~/.config/kilo/`, or `~/.codex/`
+global: `~/.claude/`, `~/.omp/agent/`, `~/.config/opencode/`, `~/.opencode/`, `~/.gemini/`, `~/.config/kilo/`, or `~/.codex/`
 local: `./.claude/`, `./.config/opencode/`, `./.opencode/`, `./.gemini/`, `./.kilo/`, or `./.codex/`)
 
 Your custom files in other locations are preserved:

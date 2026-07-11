@@ -19,6 +19,7 @@ export type RuntimeDirEntry = [string, string];
 // because update detection probes ALL historical dirs per runtime.
 export const RUNTIME_DIRS: RuntimeDirEntry[] = [
   ['claude', '.claude'],
+  ['omp', '.omp/agent'],
   ['opencode', '.config/opencode'],
   ['opencode', '.opencode'],
   ['antigravity', '.gemini/antigravity-ide'],
@@ -84,6 +85,7 @@ export function inferPreferredRuntime({ fs, env, preferredConfigDir }: InferPref
     if (fs.exists(path.join(preferredConfigDir, 'config.toml'))) return 'codex';
   }
   if (env['CODEX_HOME']) return 'codex';
+  if (env['PI_CODING_AGENT_DIR']) return 'omp';
   if (env['ANTIGRAVITY_CONFIG_DIR']) return 'antigravity';
   if (env['KILO_CONFIG_DIR'] || env['KILO_CONFIG']) return 'kilo';
   if (env['OPENCODE_CONFIG_DIR'] || env['OPENCODE_CONFIG']) return 'opencode';
@@ -101,6 +103,7 @@ export function envRuntimeDirs({ env, home }: EnvRuntimeDirsOpts): RuntimeDirEnt
   const out: RuntimeDirEntry[] = [];
   const ex = (v: string | undefined) => expandHome(v, home);
   if (env['CLAUDE_CONFIG_DIR']) out.push(['claude', ex(env['CLAUDE_CONFIG_DIR'])]);
+  if (env['PI_CODING_AGENT_DIR']) out.push(['omp', ex(env['PI_CODING_AGENT_DIR'])]);
   if (env['ANTIGRAVITY_CONFIG_DIR']) out.push(['antigravity', ex(env['ANTIGRAVITY_CONFIG_DIR'])]);
   if (env['KILO_CONFIG_DIR']) out.push(['kilo', ex(env['KILO_CONFIG_DIR'])]);
   else if (env['KILO_CONFIG']) out.push(['kilo', path.dirname(ex(env['KILO_CONFIG']))]);

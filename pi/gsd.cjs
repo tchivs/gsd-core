@@ -21,6 +21,41 @@ module.exports = function gsdPiExtension(pi) {
   const fs = require('node:fs');
   const path = require('node:path');
   const advisedFiles = new Set();
+  const activeGsdTaskIds = new Set();
+
+  function trackGsdTaskRequest(event) {
+    const input = event?.input;
+    if (event?.toolName !== 'task' || !input || typeof input.agent !== 'string' || !input.agent.startsWith('gsd-')) return;
+    const tasks = Array.isArray(input.tasks) ? input.tasks : [input];
+    for (const task of tasks) {
+      if (typeof task?.id === 'string' && task.id) activeGsdTaskIds.add(task.id);
+    }
+  }
+
+  function trackGsdTaskProgress(event) {
+    const progress = event?.details?.progress;
+    if (!Array.isArray(progress)) return;
+    for (const task of progress) {
+      if (typeof task?.agent === 'string' && task.agent.startsWith('gsd-') && typeof task.id === 'string' && task.id) {
+        activeGsdTaskIds.add(task.id);
+      }
+    }
+  }
+
+  function releaseSettledGsdTasks(event) {
+    if (event?.toolName !== 'job') return;
+    const jobs = event?.details?.jobs;
+    if (!Array.isArray(jobs)) return;
+    for (const job of jobs) {
+      if (job?.status !== 'running' && typeof job?.id === 'string') activeGsdTaskIds.delete(job.id);
+    }
+  }
+
+  function nativeTaskWaitBlock(event) {
+    const input = event?.input || {};
+    if (event?.toolName !== 'irc' || input.op !== 'wait' || typeof input.from !== 'string' || !activeGsdTaskIds.has(input.from)) return null;
+    return `GSD OMP guard: "${input.from}" is a native task job. Do not wait for task completion through IRC; use job poll ["${input.from}"] and consume its task result instead.`;
+  }
 
   function resolveEngineRoot(startDir) {
     let dir = startDir;
@@ -54,7 +89,7 @@ module.exports = function gsdPiExtension(pi) {
     const cliArgs = [CLI_PATH, family, subcommand, ...args];
     if (raw) cliArgs.push('--raw');
     return new Promise((resolve) => {
-      const child = spawn(process.execPath, cliArgs, { cwd, stdio: ['ignore', 'pipe', 'pipe'] });
+      const child = spawn(process.execPath, cliArgs, { cwd, env: { ...process.env, GSD_RUNTIME: 'omp' }, stdio: ['ignore', 'pipe', 'pipe'] });
       let stdout = '';
       let stderr = '';
       let cancelled = false;
@@ -646,7 +681,7 @@ module.exports = function gsdPiExtension(pi) {
 Execute GSD phase \`${phaseCommand}\` end-to-end using the execute-phase workflow and its existing safety gates.
 
 OMP dispatch contract:
-- Use native \`task\` for every non-interactive executor dispatch. One plan is one task; independent plans in a wave are one task batch. Wait for the wave's native task results before dispatching the next wave.
+- Use native \`task\` for every non-interactive executor dispatch. One plan is one task; independent plans in a wave are one task batch. Never use \`irc wait\` for task completion: IRC is coordination-only. Use \`job poll\` for the spawned task ids and consume the native task result before dispatching the next wave.
 - Assign each executor a stable id \`Phase${phase}Plan{PLAN}Executor\`, an operator-facing description, the \`gsd-executor\` role, the complete plan assignment, and the relevant GSD context paths.
 - Every executor that writes repository files MUST request \`isolated: true\`. If isolated execution is unavailable, stop and report the blocked plan; never fall back to main-checkout writes or manual \`git worktree\` commands.
 - \`--interactive\` is the only sequential inline mode. All other executor work uses native task dispatch.
@@ -766,6 +801,8 @@ OMP dispatch contract:
   });
 
   pi.on('tool_result', async (event, ctx) => {
+    trackGsdTaskProgress(event);
+    releaseSettledGsdTasks(event);
     const output = (event.content || [])
       .filter((chunk) => chunk.type === 'text')
       .map((chunk) => chunk.text)
@@ -780,6 +817,9 @@ OMP dispatch contract:
   });
 
   pi.on('tool_call', async (event, ctx) => {
+    trackGsdTaskRequest(event);
+    const taskWaitBlock = nativeTaskWaitBlock(event);
+    if (taskWaitBlock) return { block: true, reason: taskWaitBlock };
     const advisory = workflowAdvisory(event, ctx.cwd);
     if (!advisory) return undefined;
     await pi.sendMessage({

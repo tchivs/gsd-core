@@ -183,6 +183,7 @@ export function getDirName(runtime: string): string {
 const RUNTIME_LABELS: Readonly<Record<string, string>> = {
   claude: 'Claude Code',
   opencode: 'OpenCode',
+  omp: 'Oh My Pi',
   kilo: 'Kilo',
   codex: 'Codex',
   copilot: 'Copilot',
@@ -233,6 +234,7 @@ const DEFAULT_CONFIG_HOME_FRAGMENT = "'.claude'";
 const GLOBAL_CONFIG_HOME_FRAGMENTS: Readonly<Record<string, string>> = {
   copilot:   "'.copilot'",
   opencode:  "'.config', 'opencode'",
+  omp:       "'.omp', 'agent'",
   kilo:      "'.config', 'kilo'",
   codex:     "'.codex'",
   cursor:    "'.cursor'",
@@ -272,9 +274,9 @@ export function getGlobalConfigHomeFragment(runtime: string): string {
 // cross-runtime agents-dispatch table (out of scope for #2094, which only
 // folds the shared-hooks-install skip).
 const RUNTIME_FLAG_IDS = Object.freeze([
-  'opencode', 'kilo', 'codex', 'copilot', 'antigravity', 'cursor',
+  'opencode', 'omp', 'kilo', 'codex', 'copilot', 'antigravity', 'cursor',
   'windsurf', 'augment', 'trae', 'qwen', 'hermes', 'codebuddy', 'cline', 'kimi', 'zcode',
-] as const);
+]);
 
 /**
  * Return a frozen map of `is<Runtime>` boolean predicates for the given runtime

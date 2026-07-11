@@ -135,49 +135,27 @@ OPENCODE_CONFIG_DIR=~/.config/opencode-alt npx @opengsd/gsd-core@latest --openco
 
 ### Oh My Pi (OMP)
 
-OMP uses a Pi-compatible extension plus OMP-native agents. It is not yet selectable through the generic `npx @opengsd/gsd-core` installer, so install the adapter from a persistent source checkout:
+OMP is a first-class global runtime. Install it through the standard installer:
 
 ```bash
-git clone https://github.com/open-gsd/gsd-core.git
-cd gsd-core
-npm install
-npm run install:omp
+npx @opengsd/gsd-core@latest --omp --global
 ```
 
-This writes the extension entry to `~/.omp/agent/extensions/gsd-omp.ts` and projects GSD agents to `~/.omp/agent/agents/`. Restart OMP after installation.
+The installer writes a self-contained GSD runtime to `~/.omp/agent/`, including `extensions/gsd-omp.ts`, its adapter module, GSD agents, skills, and runtime CLI. The extension does not depend on a source checkout. Restart OMP after installation.
 
-To use a different OMP agent directory, set `PI_CODING_AGENT_DIR` before running the script:
+To use a different OMP agent directory, set `PI_CODING_AGENT_DIR`:
 
 ```bash
-PI_CODING_AGENT_DIR=~/.omp-alt/agent npm run install:omp
+PI_CODING_AGENT_DIR=~/.omp-alt/agent npx @opengsd/gsd-core@latest --omp --global
 ```
 
-The extension entry imports `pi/gsd.cjs` by its absolute checkout path. Keep that checkout available.
+OMP is global-only. A local install is rejected because OMP does not discover project-local agent roots by default.
 
 #### Updating OMP
 
-`/gsd-update` updates GSD's managed standard-runtime installation (for example, `~/.claude/`). It does not update this OMP source checkout or reinstall the OMP extension and agents, so it must not be used to upgrade the OMP adapter.
+Run `/gsd-update` from OMP. It detects `~/.omp/agent/` (or `PI_CODING_AGENT_DIR`), reinstalls the managed OMP extension, adapter, agents, skills, and GSD runtime, then prompts you to restart OMP.
 
-Commit or stash local changes, then update the checkout you installed from and reinstall the adapter:
-
-```bash
-cd gsd-core
-git pull --ff-only
-npm install
-npm run install:omp
-```
-
-For a personal fork, bring official changes into your branch through its `upstream` remote before reinstalling:
-
-```bash
-git fetch upstream
-git merge upstream/next
-git push origin HEAD
-npm install
-npm run install:omp
-```
-
-Resolve any Git merge conflict before reinstalling, then restart OMP.
+For adapter development only, `npm run install:omp` remains available to project local changes into an OMP agent directory. It is not the normal user installation or update path.
 
 ---
 

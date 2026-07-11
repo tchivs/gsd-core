@@ -41,19 +41,6 @@ Context budget: ~15% orchestrator, 100% fresh per subagent.
 **Copilot (VS Code):** Use `vscode_askquestions` wherever this workflow calls `AskUserQuestion`. They are equivalent — `vscode_askquestions` is the VS Code Copilot implementation of the same interactive question API.
 </runtime_note>
 
-<omp_native_execution>
-**OMP:** Native `task` is the executor primitive. Replace every `Agent(...)` dispatch in the execution workflow with a native `task` dispatch; do not fall back to inline execution merely because Claude's `Agent` API is absent.
-
-- Create one task per plan. A parallel wave is one native task batch; wait for all task results before progressing to the next wave.
-- Use stable executor IDs: `Phase{PHASE}Plan{PLAN}Executor`; use operator-facing descriptions such as `Execute Phase 05 plan 05-08`.
-- Supply the executor role, complete plan assignment, GSD context paths, and all existing executor acceptance criteria in every task.
-- For a task that writes repository files, set `isolated: true`. If isolation is unavailable, stop before dispatch; do not edit the primary checkout as a substitute.
-- Read-only research, review, and verification tasks remain non-isolated.
-- Treat a native task result as a lifecycle signal only. Before marking a plan complete, preserve the workflow's required SUMMARY.md, commit, merge, post-wave test, and STATE.md gates.
-- Require every executor final response to end with `[gsd-task-result] phase {PHASE} plan {PLAN} task {TASK_ID} completed`, or `failed` / `cancelled`. OMP records this independently of the progress checkpoint.
-- Never invoke `git worktree` yourself. OMP owns isolation setup and cleanup.
-</omp_native_execution>
-
 <context>
 Phase: $ARGUMENTS
 

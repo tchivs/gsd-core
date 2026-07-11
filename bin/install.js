@@ -528,7 +528,7 @@ if (hasMinimal && _profileArgRaw) {
 
 function selectRuntimesFromArgs(runtimeArgs) {
   if (runtimeArgs.includes('--all')) {
-    return ['claude', 'kimi', 'kilo', 'opencode', 'codex', 'copilot', 'antigravity', 'cursor', 'windsurf', 'augment', 'trae', 'qwen', 'hermes', 'codebuddy', 'cline', 'zcode'];
+    return ['claude', 'kimi', 'kilo', 'opencode', 'omp', 'codex', 'copilot', 'antigravity', 'cursor', 'windsurf', 'augment', 'trae', 'qwen', 'hermes', 'codebuddy', 'cline', 'zcode'];
   }
   if (runtimeArgs.includes('--both')) {
     return ['claude', 'opencode'];
@@ -537,6 +537,7 @@ function selectRuntimesFromArgs(runtimeArgs) {
   const selected = [];
   if (runtimeArgs.includes('--claude')) selected.push('claude');
   if (runtimeArgs.includes('--opencode')) selected.push('opencode');
+  if (runtimeArgs.includes('--omp')) selected.push('omp');
   if (runtimeArgs.includes('--kilo')) selected.push('kilo');
   if (runtimeArgs.includes('--codex')) selected.push('codex');
   if (runtimeArgs.includes('--copilot')) selected.push('copilot');
@@ -8475,13 +8476,13 @@ function install(isGlobal, runtime = DEFAULT_RUNTIME, options = {}) {
   const src = path.join(__dirname, '..');
 
   if (_hostBehaviors(runtime).localInstallDeferred && !isGlobal) {
-    console.log(`  ${yellow}⚠${reset} Kimi local install is deferred for Phase 2.`);
-    console.log(`      No .kimi-code/skills or .agents/skills project artifacts were written.`);
-    console.log(`      Project-level Kimi install semantics remain deferred.`);
+    const runtimeLabel = runtime === 'omp' ? 'Oh My Pi' : runtime;
+    console.log(`  ${yellow}⚠${reset} ${runtimeLabel} local install is not supported.`);
+    console.log(`      No ${getDirName(runtime)}/ artifacts were written.`);
     return {
       runtime,
       skipped: true,
-      reason: 'kimi_local_deferred',
+      reason: `${runtime}_local_deferred`,
       configDir: null,
       settingsPath: null,
       settings: null,
@@ -9457,6 +9458,27 @@ function install(isGlobal, runtime = DEFAULT_RUNTIME, options = {}) {
       console.log(`  ${green}✓${reset} Installed agents`);
     } else {
       failures.push('agents');
+    }
+  }
+
+  if (runtime === 'omp') {
+    const adapterSource = path.join(src, 'pi', 'gsd.cjs');
+    const extensionsDir = assertDestWithinConfigHome(targetDir, 'extensions');
+    const adapterTarget = path.join(extensionsDir, 'gsd-omp.cjs');
+    const extensionTarget = path.join(extensionsDir, 'gsd-omp.ts');
+    if (!fs.existsSync(adapterSource)) {
+      failures.push('OMP adapter source');
+    } else {
+      fs.mkdirSync(extensionsDir, { recursive: true });
+      fs.copyFileSync(adapterSource, adapterTarget);
+      fs.writeFileSync(extensionTarget, 'import gsdPiExtension from "./gsd-omp.cjs";\n\nexport default gsdPiExtension;\n');
+      const { installOmpAgents } = require(path.join(src, 'pi', 'install-omp-agents.cjs'));
+      installOmpAgents(agentsDest, path.join(src, 'agents'), targetDir);
+      if (verifyFileInstalled(adapterTarget, 'OMP adapter') && verifyFileInstalled(extensionTarget, 'OMP extension')) {
+        console.log(`  ${green}✓${reset} Installed OMP extension`);
+      } else {
+        failures.push('OMP extension');
+      }
     }
   }
 
@@ -10848,10 +10870,11 @@ const runtimeMap = {
   '13': 'qwen',
   '14': 'trae',
   '15': 'windsurf',
-  '16': 'zcode'
+  '16': 'zcode',
+  '17': 'omp'
 };
-const allRuntimes = ['claude', 'antigravity', 'augment', 'cline', 'codebuddy', 'codex', 'copilot', 'cursor', 'hermes', 'kimi', 'kilo', 'opencode', 'qwen', 'trae', 'windsurf', 'zcode'];
-const ALL_RUNTIMES_OPTION = '17';
+const allRuntimes = ['claude', 'antigravity', 'augment', 'cline', 'codebuddy', 'codex', 'copilot', 'cursor', 'hermes', 'kimi', 'kilo', 'opencode', 'omp', 'qwen', 'trae', 'windsurf', 'zcode'];
+const ALL_RUNTIMES_OPTION = '18';
 
 /**
  * Build the runtime-selection prompt text shown by the interactive installer.
@@ -10875,7 +10898,8 @@ function buildRuntimePromptText() {
   ${cyan}14${reset}) Trae         ${dim}(~/.trae)${reset}
   ${cyan}15${reset}) Windsurf     ${dim}(~/.codeium/windsurf)${reset}
   ${cyan}16${reset}) ZCode        ${dim}(~/.zcode)${reset}
-  ${cyan}17${reset}) All
+  ${cyan}17${reset}) Oh My Pi     ${dim}(~/.omp/agent)${reset}
+  ${cyan}18${reset}) All
 
   ${dim}Select multiple: 1,2,6 or 1 2 6${reset}
 `;
@@ -10886,14 +10910,14 @@ function buildRuntimePromptText() {
  * Pure function — exported so tests can verify split/dedupe/fallback behavior.
  *  - Accepts comma- and/or whitespace-separated choices
  *  - Deduplicates while preserving order
- *  - Maps option 16 ("All") to every runtime
+ *  - Maps option 18 ("All") to every runtime
  *  - Falls back to ['claude'] when nothing valid is selected
  */
 function parseRuntimeInput(answer) {
   const input = (answer == null ? '' : String(answer)).trim() || '1';
 
   // Tokenize first so the all-runtimes shortcut also fires for inputs the
-  // prompt encourages — "16,", "16 1", etc. — not just the bare "16".
+  // prompt encourages — "18," or "18 1" — not just the bare "18".
   const choices = input.split(/[\s,]+/).filter(Boolean);
   if (choices.includes(ALL_RUNTIMES_OPTION)) {
     return allRuntimes.slice();
