@@ -665,6 +665,25 @@ test('the workflow guard queues one non-blocking advisory per edited file', asyn
   assert.equal(pi._recorded.messages[0].options.deliverAs, 'nextTurn');
 });
 
+test('the workflow guard does not suppress advisories in another GSD project', async () => {
+  const firstCwd = fs.mkdtempSync(path.join(os.tmpdir(), 'gsd-omp-guard-first-'));
+  const secondCwd = fs.mkdtempSync(path.join(os.tmpdir(), 'gsd-omp-guard-second-'));
+  for (const cwd of [firstCwd, secondCwd]) {
+    fs.mkdirSync(path.join(cwd, '.planning'));
+    fs.writeFileSync(path.join(cwd, '.planning', 'config.json'), JSON.stringify({ hooks: { workflow_guard: true } }));
+    fs.writeFileSync(path.join(cwd, '.planning', 'STATE.md'), '---\ncurrent_phase: "01"\nstatus: executing\n---\n');
+  }
+  const pi = mockPi();
+  gsdPiExtension(pi);
+  const event = { toolName: 'edit', input: { path: 'src/app.ts' } };
+
+  await pi._recorded.events.tool_call(event, { cwd: firstCwd });
+  await pi._recorded.events.tool_call(event, { cwd: secondCwd });
+  await pi._recorded.events.tool_call(event, { cwd: firstCwd });
+
+  assert.equal(pi._recorded.messages.length, 2);
+});
+
 test('gsdPiExtension rejects a missing ExtensionAPI', () => {
   assert.throws(() => gsdPiExtension(null), /ExtensionAPI is required/);
 });

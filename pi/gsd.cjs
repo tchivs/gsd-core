@@ -717,8 +717,9 @@ module.exports = function gsdPiExtension(pi) {
     const filePath = input.path || input.filePath || input.file_path || input.file || '';
     if (!filePath || filePath.includes('.planning/')) return null;
     if (/\.(gitignore|env)|\/(CLAUDE|AGENTS|GEMINI)\.md$|settings\.json$/i.test(filePath)) return null;
-    if (advisedFiles.has(filePath)) return null;
-    advisedFiles.add(filePath);
+    const advisoryKey = path.resolve(cwd, filePath);
+    if (advisedFiles.has(advisoryKey)) return null;
+    advisedFiles.add(advisoryKey);
 
     return `⚠️ GSD workflow advisory: ${path.basename(filePath)} is being edited outside a tracked GSD workflow. ` +
       'Use /gsd-fast or /gsd-quick when the change should update GSD state and produce a summary.';
