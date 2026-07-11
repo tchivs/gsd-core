@@ -6851,7 +6851,8 @@ function uninstall(isGlobal, runtime = DEFAULT_RUNTIME) {
   // destructure). #2095: isKimi likewise dropped — kimi is now a hooks/
   // consumer, so its former `&& !isKimi` uninstall guards were removed.
   // #2096: isAntigravity dropped — unused in this function.
-  const { isOpencode, isCodex, isCopilot, isCursor, isWindsurf, isAugment, isQwen, isHermes, isCodebuddy, isCline } = runtimeFlags(runtime);
+  // #2098: isCodebuddy dropped — unused in this function.
+  const { isOpencode, isCodex, isCopilot, isCursor, isWindsurf, isAugment, isQwen, isHermes, isCline } = runtimeFlags(runtime);
   const dirName = getDirName(runtime);
 
   // Get the target directory based on runtime and install type. Cline local
@@ -8238,7 +8239,8 @@ function writeManifest(configDir, runtime = DEFAULT_RUNTIME, options = {}) {
   // #2095: isKimi dropped — kimi is now a hooks/ consumer like every other
   // settings-json-adjacent runtime, so the `&& !isKimi` term below was removed.
   // #2096: isAntigravity dropped — unused in this function.
-  const { isOpencode, isCodex, isCopilot, isCursor, isWindsurf, isAugment, isQwen, isHermes, isCodebuddy, isCline } = runtimeFlags(runtime);
+  // #2098: isCodebuddy dropped — unused in this function.
+  const { isOpencode, isCodex, isCopilot, isCursor, isWindsurf, isAugment, isQwen, isHermes, isCline } = runtimeFlags(runtime);
   const gsdDir = path.join(configDir, 'gsd-core');
   // #1367: Claude local now writes flat gsd-*.md files at commands/ (not commands/gsd/).
   // Claude local uses flatCommandsDir instead for manifest recording.
@@ -8758,7 +8760,11 @@ function install(isGlobal, runtime = DEFAULT_RUNTIME, options = {}) {
   // _DESCRIPTOR_AGENTS_RUNTIMES below, so its two legacy-agent-loop branches
   // (the path-rewrite skip and the converter dispatch) were unreachable dead
   // code; both were removed rather than re-gated on hostBehaviors.
-  const { isOpencode, isZcode, isCodex, isCopilot, isCursor, isWindsurf, isAugment, isTrae, isQwen, isHermes, isCodebuddy, isCline } = runtimeFlags(runtime);
+  // #2098: isCodebuddy dropped — codebuddy is also in
+  // _DESCRIPTOR_AGENTS_RUNTIMES below, so its legacy converter-dispatch branch
+  // (the `isCodebuddy` arm calling convertClaudeAgentToCodebuddyAgent) was
+  // unreachable dead code and was removed rather than re-gated.
+  const { isOpencode, isZcode, isCodex, isCopilot, isCursor, isWindsurf, isAugment, isTrae, isQwen, isHermes, isCline } = runtimeFlags(runtime);
   const plan = resolveInstallPlan(runtime);
   const dirName = getDirName(runtime);
   const src = path.join(__dirname, '..');
@@ -9377,22 +9383,6 @@ function install(isGlobal, runtime = DEFAULT_RUNTIME, options = {}) {
           failures.push('commands/gsd-*');
         }
       }
-
-      // CodeBuddy only: also report the commands/ output (#789 — slash commands)
-      if (isCodebuddy) {
-        const commandsDir = path.join(targetDir, 'commands');
-        if (fs.existsSync(commandsDir)) {
-          const cmdCount = fs.readdirSync(commandsDir)
-            .filter(f => f.startsWith('gsd-') && f.endsWith('.md')).length;
-          if (cmdCount > 0) {
-            console.log(`  ${green}✓${reset} Installed ${cmdCount} slash commands to commands/`);
-          } else {
-            failures.push('commands/gsd-*');
-          }
-        } else {
-          failures.push('commands/gsd-*');
-        }
-      }
     }
   } else if (_hostBehaviors(runtime).localCommandsViaRules) {
     // Cline local install: rules-based only — commands are embedded in .clinerules (generated below).
@@ -9697,8 +9687,6 @@ function install(isGlobal, runtime = DEFAULT_RUNTIME, options = {}) {
           content = convertClaudeAgentToCopilotAgent(content, isGlobal);
         } else if (isWindsurf) {
           content = convertClaudeAgentToWindsurfAgent(content);
-        } else if (isCodebuddy) {
-          content = convertClaudeAgentToCodebuddyAgent(content);
         } else if (_hostBehaviors(runtime).frontmatterDialect === 'cline') {
           // Descriptor-driven (ADR-1239 / #2090): folded from `isCline` into
           // hostBehaviors.frontmatterDialect === 'cline'.
@@ -10937,7 +10925,8 @@ function finishInstall(settingsPath, settings, statuslineCommand, shouldInstallS
   // #2095: isKimi dropped — the Kimi "Done!" banner below reads
   // _hostBehaviors(runtime).doneBannerStyle === 'kimi-agent-file' (descriptor-driven), not this flag.
   // #2096: isAntigravity dropped — unused in this function.
-  const { isOpencode, isCodex, isCopilot, isCursor, isWindsurf, isAugment, isQwen, isHermes, isCodebuddy, isCline } = runtimeFlags(runtime);
+  // #2098: isCodebuddy dropped — unused in this function.
+  const { isOpencode, isCodex, isCopilot, isCursor, isWindsurf, isAugment, isQwen, isHermes, isCline } = runtimeFlags(runtime);
   const plan = resolveInstallPlan(runtime);
 
   if (shouldInstallStatusline && plan.writesSharedSettings && !_hostBehaviors(runtime).skipSettingsUi) {

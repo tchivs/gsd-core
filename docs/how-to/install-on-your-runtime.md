@@ -381,6 +381,22 @@ npx @opengsd/gsd-core@latest --codebuddy --global
 
 GSD installs four surfaces. Slash command definitions land in `~/.codebuddy/commands/gsd-*.md` and appear as `/gsd-help`, `/gsd-phase`, `/gsd-ship`, etc. in the `/` menu. Subagents land in `~/.codebuddy/agents/gsd-*.md`. Skills land in `~/.codebuddy/skills/gsd-*/SKILL.md` — emitted with `user-invocable: false` so they stay out of the `/` menu (the commands surface is the sole `/` entry point) and remain available for model invocation. CodeBuddy hooks are written to `settings.json`. No `mcp.json` is written: GSD ships no MCP server.
 
+**Hook coverage**
+
+GSD registers the following events automatically on install (Claude hook event dialect):
+
+| Event | Hook | Purpose |
+|---|---|---|
+| `SessionStart` | `gsd-check-update.js`, `gsd-session-state.sh` | Update check, session orientation |
+| `PreToolUse` | `gsd-prompt-guard.js`, `gsd-read-guard.js`, `gsd-workflow-guard.js`, `gsd-worktree-path-guard.js`, `gsd-validate-commit.sh` | Prompt guard, read-before-edit, workflow + worktree safety, commit validation |
+| `PostToolUse` | `gsd-context-monitor.js`, `gsd-read-injection-scanner.js`, `gsd-phase-boundary.sh`, `gsd-graphify-update.sh` | Context monitoring, read-time scan, phase boundary detection |
+| `SubagentStop` | `gsd-context-monitor.js` | Context headroom tracking after subagent completion |
+| `SubagentStart` | `gsd-context-monitor.js` | Context headroom tracking at subagent start |
+| `Stop` | `gsd-context-monitor.js` | Context headroom tracking before model stop |
+| `PreCompact` | `gsd-context-monitor.js` | Context awareness before conversation compaction |
+
+CodeBuddy's own [background sub-agent dispatch](https://www.codebuddy.ai/docs/cli/sub-agents) (`run_in_background: true`) is a caller-side invocation parameter, not something GSD's installed agent files control — there is no frontmatter field to set on GSD's agent artifacts to request it.
+
 ---
 
 ### Qwen Code
