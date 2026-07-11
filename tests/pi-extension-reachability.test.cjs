@@ -12,6 +12,7 @@ const { cleanup } = require('./helpers.cjs');
 const gsdPiExtension = require('../pi/gsd.cjs');
 const { _internals } = require('../pi/gsd.cjs');
 const { createTempDir, cleanup } = require('./helpers.cjs');
+const { installOmpSkills } = require('../pi/install-omp-skills.cjs');
 
 function mockZod() {
   const chain = () => ({ default: () => chain(), optional: () => chain() });
@@ -164,6 +165,31 @@ test('the OMP agent installer projects native task and isolation guidance', () =
   const extensionEntry = fs.readFileSync(extensionDestination, 'utf8');
   assert.match(extensionEntry, /import gsdPiExtension from/);
   assert.match(extensionEntry, /pi\/gsd\.cjs/);
+});
+
+test('the OMP development installer projects every GSD skill with runtime paths', () => {
+  const runtimeRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'gsd-omp-skills-'));
+  const skillsDir = path.join(runtimeRoot, 'skills');
+  try {
+    const sourceSkillsDir = path.resolve(__dirname, '..', 'skills');
+    const expectedCount = fs.readdirSync(sourceSkillsDir, { withFileTypes: true })
+      .filter((entry) => entry.isDirectory() && entry.name.startsWith('gsd-') && fs.existsSync(path.join(sourceSkillsDir, entry.name, 'SKILL.md')))
+      .length;
+    const installed = installOmpSkills(skillsDir, sourceSkillsDir);
+    assert.equal(installed.length, expectedCount);
+
+    const planSkill = fs.readFileSync(path.join(skillsDir, 'gsd-plan-phase', 'SKILL.md'), 'utf8');
+    const runtimeWorkflow = path.join(runtimeRoot, 'gsd-core', 'workflows', 'plan-phase.md').split(path.sep).join('/');
+    assert.ok(planSkill.includes(`@${runtimeWorkflow}`));
+    assert.doesNotMatch(planSkill, /~\/\.claude\/gsd-core/);
+    const executeSkill = fs.readFileSync(path.join(skillsDir, 'gsd-execute-phase', 'SKILL.md'), 'utf8');
+    assert.match(executeSkill, /<omp_native_execution>/);
+    assert.match(executeSkill, /use `job poll`/);
+    assert.match(executeSkill, /Never use `irc wait`/);
+    assert.match(executeSkill, /MUST terminal-yield immediately after final verification/);
+  } finally {
+    cleanup(runtimeRoot);
+  }
 });
 
 test('the generic installer creates a self-contained OMP runtime', () => {
