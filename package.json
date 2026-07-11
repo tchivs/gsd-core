@@ -9,6 +9,9 @@
     "gsd_run": "gsd-core/bin/gsd_run",
     "gsd-mcp-server": "bin/gsd-mcp-server.js"
   },
+  "omp": {
+    "extensions": ["./pi/omp.ts"]
+  },
   "files": [
     "bin",
     "commands",
@@ -20,6 +23,7 @@
     ".opencode",
     "GEMINI.md",
     "hooks",
+    "pi",
     "scripts"
   ],
   "keywords": [
