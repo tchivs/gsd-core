@@ -987,7 +987,10 @@ const capabilities = {
         "runtime": "undocumented"
       },
       "hostBehaviors": {
-        "reapplyCommand": "/gsd-update --reapply"
+        "reapplyCommand": "/gsd-update --reapply",
+        "agentFileExtension": ".agent.md",
+        "skipSharedHooksInstall": true,
+        "noPathRewrite": true
       }
     }
   },
@@ -4522,7 +4525,10 @@ const runtimes = {
         "runtime": "undocumented"
       },
       "hostBehaviors": {
-        "reapplyCommand": "/gsd-update --reapply"
+        "reapplyCommand": "/gsd-update --reapply",
+        "agentFileExtension": ".agent.md",
+        "skipSharedHooksInstall": true,
+        "noPathRewrite": true
       }
     }
   },
