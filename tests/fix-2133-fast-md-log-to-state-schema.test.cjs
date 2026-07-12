@@ -93,16 +93,12 @@ describe('#2133 fast.md log_to_state schema gate', () => {
     const tmpDir = createTempProject('fix-2133-');
     const statePath = path.join(tmpDir, '.planning', 'STATE.md');
     fs.writeFileSync(statePath, makeStateMd(headerLine, separatorLine, existingRows));
-    let stdout = '';
-    try {
-      stdout = execFileSync('bash', ['-c', bashBlock], {
-        cwd: tmpDir,
-        env: { ...process.env, TASK: TASK_DESC },
-        encoding: 'utf8',
-      });
-    } finally {
-      // cleanup deferred to caller via t.after where bound
-    }
+    // Cleanup is bound by each caller via t.after(tmpDir).
+    const stdout = execFileSync('bash', ['-c', bashBlock], {
+      cwd: tmpDir,
+      env: { ...process.env, TASK: TASK_DESC },
+      encoding: 'utf8',
+    });
     const after = fs.readFileSync(statePath, 'utf8');
     return { tmpDir, stdout, after };
   }
