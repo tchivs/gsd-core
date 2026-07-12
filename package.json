@@ -23,8 +23,9 @@
     ".opencode",
     "GEMINI.md",
     "hooks",
+    "scripts",
     "pi",
-    "scripts"
+    "vscode"
   ],
   "keywords": [
     "claude",
