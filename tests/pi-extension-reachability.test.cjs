@@ -480,10 +480,62 @@ test('the GSD status line displays the most recent checkpoint', async () => {
   await pi._recorded.events.tool_result({ content: [{ type: 'text', text: '[checkpoint] phase 05 wave 4/10 plan 05-08 complete (7/23 plans done)' }] }, ctx);
   assert.deepEqual(JSON.parse(fs.readFileSync(path.join(cwd, '.planning', '.omp-checkpoint.json'), 'utf8')), checkpoint);
   await pi._recorded.events.session_start({}, ctx);
-  assert.deepEqual(statuses.at(-1), { key: 'gsd', text: 'GSD 05 · W4/10 · 7/23 · 05-08 complete' });
+  assert.deepEqual(statuses.at(-1), { key: 'gsd', text: 'GSD 05 · Executing · W4/10 · 7/23 · 05-08 complete' });
   fs.writeFileSync(path.join(cwd, '.planning', 'STATE.md'), '---\ncurrent_phase: "05"\nstatus: ready_for_verification\n---\n');
   await pi._recorded.events.turn_end({}, ctx);
   assert.deepEqual(statuses.at(-1), { key: 'gsd', text: 'GSD 05 · Ready to verify' });
+});
+
+test('the GSD execution status shows native task activity', async () => {
+  const pi = mockPi();
+  gsdPiExtension(pi);
+  const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'gsd-omp-active-tasks-'));
+  const phaseDirectory = path.join(cwd, '.planning', 'phases', '04-recovery');
+  fs.mkdirSync(phaseDirectory, { recursive: true });
+  for (const plan of ['01', '02']) {
+    fs.writeFileSync(path.join(phaseDirectory, `04-${plan}-PLAN.md`), 'plan');
+    fs.writeFileSync(path.join(phaseDirectory, `04-${plan}-SUMMARY.md`), 'summary');
+  }
+  fs.writeFileSync(path.join(cwd, '.planning', 'config.json'), JSON.stringify({ response_language: 'Simplified Chinese' }));
+  fs.writeFileSync(path.join(cwd, '.planning', 'STATE.md'), '---\ncurrent_phase: "04"\nstatus: executing\n---\n');
+  const statuses = [];
+  const widgets = [];
+  const ctx = {
+    cwd,
+    hasUI: true,
+    ui: {
+      setStatus: (key, text) => statuses.push({ key, text }),
+      setWidget: (key, lines, options) => widgets.push({ key, lines: lines.map(stripAnsi), options }),
+    },
+  };
+
+  await pi._recorded.commands['gsd-execute-phase'].handler('04', ctx);
+  await pi._recorded.events.tool_call({ toolName: 'task', input: { tasks: [
+    { id: 'SandboxIsolationFix' },
+    { id: 'SandboxValidationAuthFix' },
+    { id: 'PolicyFingerprintFix' },
+    { id: 'SplitEvidenceFix' },
+    { id: 'Phase2E2ERegressionFix' },
+  ] } }, ctx);
+  assert.deepEqual(statuses.at(-1), { key: 'gsd', text: 'GSD 04 · 执行中 · 5 个任务运行中 · 阶段计划 2/2 已完成' });
+  assert.deepEqual(widgets.at(-1), {
+    key: 'gsd',
+    lines: ['GSD · 执行中', '└─ 5 个任务运行中'],
+    options: { placement: 'aboveEditor' },
+  });
+
+  await pi._recorded.events.tool_result({
+    toolName: 'job',
+    details: { jobs: [
+      { id: 'SandboxIsolationFix', status: 'completed' },
+      { id: 'SandboxValidationAuthFix', status: 'running' },
+      { id: 'PolicyFingerprintFix', status: 'running' },
+      { id: 'SplitEvidenceFix', status: 'running' },
+      { id: 'Phase2E2ERegressionFix', status: 'running' },
+    ] },
+    content: [],
+  }, ctx);
+  assert.deepEqual(statuses.at(-1), { key: 'gsd', text: 'GSD 04 · 执行中 · 4 个任务运行中 · 阶段计划 2/2 已完成' });
 });
 
 test('the OMP adapter persists native executor task results', async () => {
