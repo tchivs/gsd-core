@@ -51,6 +51,7 @@ test('the OMP bridge registers command, tool, and lifecycle hooks', () => {
   assert.equal(typeof pi._recorded.commands['gsd-next'].handler, 'function');
   assert.equal(typeof pi._recorded.commands['gsd-discuss-phase'].handler, 'function');
   assert.equal(typeof pi._recorded.commands['gsd-plan-phase'].handler, 'function');
+  assert.equal(typeof pi._recorded.commands['gsd-verify-work'].handler, 'function');
   assert.equal(typeof pi._recorded.tools.gsd_invoke.execute, 'function');
   assert.equal(typeof pi._recorded.events.session_start, 'function');
   assert.equal(typeof pi._recorded.events.tool_call, 'function');
@@ -172,6 +173,53 @@ test('the plan command selects an unplanned phase and preserves planning workflo
 
   await pi._recorded.commands['gsd-plan-phase'].handler('03 --ingest-format yaml', { cwd });
   assert.equal(pi._recorded.messages.at(-1).message.customType, 'gsd-plan-input-error');
+});
+
+test('the verification command selects completed phases and resumes incomplete UAT', async () => {
+  const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'gsd-omp-verify-picker-'));
+  const readyPhase = path.join(cwd, '.planning', 'phases', '02-ready');
+  const incompletePhase = path.join(cwd, '.planning', 'phases', '03-running');
+  const verifiedPhase = path.join(cwd, '.planning', 'phases', '04-verified');
+  fs.mkdirSync(readyPhase, { recursive: true });
+  fs.mkdirSync(incompletePhase, { recursive: true });
+  fs.mkdirSync(verifiedPhase, { recursive: true });
+  fs.writeFileSync(path.join(cwd, '.planning', 'ROADMAP.md'), '- [ ] **Phase 2: Ready** - Verify me.\n- [ ] **Phase 3: Running** - Finish execution first.\n- [x] **Phase 4: Verified** - Already accepted.\n');
+  fs.writeFileSync(path.join(readyPhase, '02-01-PLAN.md'), 'plan');
+  fs.writeFileSync(path.join(readyPhase, '02-01-SUMMARY.md'), 'summary');
+  fs.writeFileSync(path.join(readyPhase, '02-UAT.md'), '---\nstatus: testing\n---\n');
+  fs.writeFileSync(path.join(incompletePhase, '03-01-PLAN.md'), 'plan');
+  fs.writeFileSync(path.join(verifiedPhase, '04-01-PLAN.md'), 'plan');
+  fs.writeFileSync(path.join(verifiedPhase, '04-01-SUMMARY.md'), 'summary');
+  fs.writeFileSync(path.join(verifiedPhase, '04-UAT.md'), '---\nstatus: complete\n---\n');
+  const pi = mockPi();
+  gsdPiExtension(pi);
+  const menus = [];
+  await pi._recorded.commands['gsd-verify-work'].handler('', { cwd, hasUI: true, ui: {
+    select: async (_title, options) => {
+      menus.push(options);
+      return options[0];
+    },
+  } });
+  assert.deepEqual(menus[0], [{
+    phase: '02',
+    label: 'Phase 2: Ready',
+    description: '1/1 plans complete · UAT testing',
+  }]);
+  assert.equal(pi._recorded.messages.at(-1).message.customType, 'gsd-native-verify-work');
+  assert.match(pi._recorded.messages.at(-1).message.content, /Execute GSD phase verification `02`/);
+  assert.match(pi._recorded.messages.at(-1).message.content, /Resume an existing incomplete UAT session/);
+  assert.match(pi._recorded.messages.at(-1).message.content, /exactly one observable user-acceptance test at a time/);
+
+  await pi._recorded.commands['gsd-verify-work'].handler('02 --ws qa-session', { cwd });
+  assert.equal(pi._recorded.messages.at(-1).message.customType, 'gsd-native-verify-work');
+  assert.match(pi._recorded.messages.at(-1).message.content, /`02 --ws qa-session`/);
+
+  fs.writeFileSync(path.join(readyPhase, '02-UAT.md'), '---\nstatus: complete\n---\n');
+  await pi._recorded.commands['gsd-verify-work'].handler('', { cwd, hasUI: true, ui: { select: async () => { throw new Error('must not prompt'); } } });
+  assert.equal(pi._recorded.messages.at(-1).message.customType, 'gsd-verify-no-ready-phase');
+
+  await pi._recorded.commands['gsd-verify-work'].handler('02 --ws', { cwd });
+  assert.equal(pi._recorded.messages.at(-1).message.customType, 'gsd-verify-input-error');
 });
 
 test('the native phase command blocks parent-checkout source writes', async () => {

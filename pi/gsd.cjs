@@ -728,6 +728,44 @@ module.exports = function gsdPiExtension(pi) {
       .filter(Boolean);
   }
 
+  function phaseVerificationStatus(cwd, phase) {
+    const phasesPath = path.join(cwd, '.planning', 'phases');
+    try {
+      const phaseDirectory = fs.readdirSync(phasesPath, { withFileTypes: true })
+        .find((entry) => entry.isDirectory() && entry.name.startsWith(`${phase}-`));
+      if (!phaseDirectory) return 'pending';
+      const uatPath = path.join(phasesPath, phaseDirectory.name, `${phase}-UAT.md`);
+      if (!fs.existsSync(uatPath)) return 'pending';
+      const content = fs.readFileSync(uatPath, 'utf8');
+      return content.match(/^\s*status:\s*"?([^"\r\n]+)"?\s*$/mi)?.[1]?.trim().toLowerCase() || 'in progress';
+    } catch {
+      return 'pending';
+    }
+  }
+
+  function verifiablePhaseOptions(cwd) {
+    let roadmap;
+    try {
+      roadmap = fs.readFileSync(path.join(cwd, '.planning', 'ROADMAP.md'), 'utf8');
+    } catch {
+      return [];
+    }
+    return [...roadmap.matchAll(/^-\s+\[[ xX]\]\s+\*\*Phase\s+(\d+):\s+(.+?)\*\*/gmi)]
+      .map(([, number, name]) => {
+        const phase = String(Number(number)).padStart(2, '0');
+        const progress = phaseArtifactProgress(cwd, { phase });
+        if (!progress || progress.summaries !== progress.plans) return null;
+        const uat = phaseVerificationStatus(cwd, phase);
+        if (uat === 'complete') return null;
+        return {
+          phase,
+          label: `Phase ${Number(number)}: ${name.trim()}`,
+          description: `${progress.summaries}/${progress.plans} plans complete · UAT ${uat}`,
+        };
+      })
+      .filter(Boolean);
+  }
+
   function planProgress(cwd, state, width = 10) {
     const artifactProgress = phaseArtifactProgress(cwd, state);
     const total = artifactProgress?.plans ?? Number(state?.totalPlans);
@@ -1180,6 +1218,58 @@ OMP interaction contract:
     if (phase) await launchNativePhasePlanning(ctx, phase.phase);
   }
 
+  function nativeVerifyPrompt(input) {
+    const tokens = parseCommandLine(input);
+    const [phase, ...options] = tokens;
+    if (!/^\d+$/.test(phase || '') || (options.length && (options.length !== 2 || options[0] !== '--ws' || !options[1]))) return null;
+    const phaseCommand = [phase, ...options].join(' ');
+    return `# OMP native GSD phase verification
+
+Execute GSD phase verification \`${phaseCommand}\` end-to-end using the gsd-verify-work workflow and its existing UAT, diagnosis, fix-planning, and routing gates.
+
+OMP verification contract:
+- Start with a verification preflight: inspect all phase SUMMARY.md files, the existing UAT.md and VERIFICATION.md if present, plus current roadmap and STATE.md status. Resume an existing incomplete UAT session; never recreate or discard it.
+- Present exactly one observable user-acceptance test at a time, state the expected result, and wait for the user's plain-text response before advancing. Do not batch questions, auto-pass a test, or replace the conversational UAT with a checklist menu.
+- On a failed criterion, preserve the failure in UAT.md and follow the existing diagnosis, gap-planning, and execution-routing workflow. Do not treat a passing automated test as a substitute for the requested user observation.
+- Preserve the existing verification workflow's session management, phase-completion, and recovery rules. The native command is an entry point, not a replacement workflow.
+`;
+  }
+
+  async function launchNativePhaseVerification(ctx, input) {
+    const prompt = nativeVerifyPrompt(input);
+    if (!prompt) {
+      await pi.sendMessage({ customType: 'gsd-verify-input-error', content: 'Usage: /gsd-verify-work <phase> [--ws NAME]', display: true }, { triggerTurn: false });
+      return;
+    }
+    await pi.sendMessage({ customType: 'gsd-native-verify-work', content: prompt, display: true }, { triggerTurn: true });
+  }
+
+  async function chooseVerificationPhase(ctx) {
+    const chinese = usesChinese(ctx.cwd);
+    const phases = verifiablePhaseOptions(ctx.cwd);
+    if (!phases.length) {
+      await pi.sendMessage({
+        customType: 'gsd-verify-no-ready-phase',
+        content: chinese ? '没有准备好进行用户验收的阶段。请先完成执行计划。' : 'No phase is ready for user acceptance. Complete its execution plans first.',
+        display: true,
+      }, { triggerTurn: false });
+      return;
+    }
+    if (!ctx.hasUI || !ctx.ui?.select) {
+      await pi.sendMessage({ customType: 'gsd-verify-input-error', content: 'Usage: /gsd-verify-work <phase> [--ws NAME]', display: true }, { triggerTurn: false });
+      return;
+    }
+    let selection;
+    try {
+      selection = await ctx.ui.select(chinese ? '验收阶段' : 'Verify a phase', phases);
+    } catch {
+      return;
+    }
+    const label = typeof selection === 'string' ? selection : selection?.label || selection?.value;
+    const phase = phases.find((candidate) => candidate.label === label);
+    if (phase) await launchNativePhaseVerification(ctx, phase.phase);
+  }
+
   pi.registerCommand('gsd-execute-phase', {
     description: 'Choose and execute a GSD phase through OMP native task waves.',
     handler: async (input, ctx) => {
@@ -1205,6 +1295,14 @@ OMP interaction contract:
     handler: async (input, ctx) => {
       if (!String(input || '').trim()) return choosePlanningPhase(ctx);
       return launchNativePhasePlanning(ctx, input);
+    },
+  });
+
+  pi.registerCommand('gsd-verify-work', {
+    description: 'Choose and verify a completed GSD phase through native UAT.',
+    handler: async (input, ctx) => {
+      if (!String(input || '').trim()) return chooseVerificationPhase(ctx);
+      return launchNativePhaseVerification(ctx, input);
     },
   });
 
