@@ -239,46 +239,14 @@ module.exports = function gsdPiExtension(pi) {
     return taskIds;
   }
 
-  function tracksNativePhaseTasks(cwd) {
-    return nativePhaseCwds.has(path.resolve(cwd)) && stateSnapshot(cwd)?.status === 'executing';
-  }
-
-  function isTrackedGsdTask(task, cwd) {
-    return Boolean(
-      (typeof task?.agent === 'string' && task.agent.startsWith('gsd-'))
-      || tracksNativePhaseTasks(cwd)
-    );
-  }
-
   function trackGsdTaskRequest(event, cwd) {
     const input = event?.input;
-    if (event?.toolName !== 'task' || !input || !isTrackedGsdTask(input, cwd)) return false;
+    if (event?.toolName !== 'task' || !input || typeof input.agent !== 'string' || !input.agent.startsWith('gsd-')) return;
     const taskIds = taskIdsFor(cwd);
     const tasks = Array.isArray(input.tasks) ? input.tasks : [input];
-    let changed = false;
     for (const task of tasks) {
-      if (typeof task?.id === 'string' && task.id && !taskIds.has(task.id)) {
-        taskIds.add(task.id);
-        changed = true;
-      }
+      if (typeof task?.id === 'string' && task.id) taskIds.add(task.id);
     }
-    return changed;
-  }
-
-  function trackGsdTaskProgress(event, cwd) {
-    const progress = event?.details?.progress;
-    if (!Array.isArray(progress)) return false;
-    let taskIds = null;
-    let changed = false;
-    for (const task of progress) {
-      if (!isTrackedGsdTask(task, cwd) || typeof task?.id !== 'string' || !task.id) continue;
-      taskIds ||= taskIdsFor(cwd);
-      if (!taskIds.has(task.id)) {
-        taskIds.add(task.id);
-        changed = true;
-      }
-    }
-    return changed;
   }
 
   function releaseSettledGsdTasks(event, cwd) {
@@ -813,42 +781,23 @@ module.exports = function gsdPiExtension(pi) {
     return chinese ? `${scope} ${counts} 已完成` : `${scope} ${counts} complete`;
   }
 
-  function checkpointDetails(cwd, state) {
-    const checkpoint = readCheckpoint(cwd);
-    if (state.status !== 'executing' || !checkpoint || Number(String(state.phase).replace(/^0+/, '') || 0) !== checkpoint.phase) return null;
-    if (usesChinese(cwd)) return `波 ${checkpoint.wave}/${checkpoint.waveTotal} · ${checkpoint.plansDone}/${checkpoint.plansTotal} 计划 · ${checkpoint.plan} 完成`;
-    return `W${checkpoint.wave}/${checkpoint.waveTotal} · ${checkpoint.plansDone}/${checkpoint.plansTotal} · ${checkpoint.plan} complete`;
-  }
-
-  function executionActivityText(activeTasks, cwd) {
-    if (!activeTasks) return null;
-    if (usesChinese(cwd)) return `${activeTasks} 个任务运行中`;
-    return `${activeTasks} task${activeTasks === 1 ? '' : 's'} running`;
-  }
-
-  function statusView(cwd, includeAction = false) {
+  function widgetLines(cwd) {
+    const chinese = usesChinese(cwd);
+    const action = readNextAction(cwd);
     const state = stateSnapshot(cwd);
-    const action = includeAction ? readNextAction(cwd) : null;
-    if (!state || state.unreadable) return { state, action, checkpoint: null, progress: null, activeTasks: 0 };
-    return {
-      state,
-      action,
-      checkpoint: checkpointDetails(cwd, state),
-      progress: planProgress(cwd, state),
-      activeTasks: activeGsdTaskCount(cwd),
-    };
-  }
-
-  function statusText(cwd, view = statusView(cwd)) {
-    const { state } = view;
-    if (!state) return null;
-    if (state.unreadable) return usesChinese(cwd) ? 'GSD · 状态文件无法解析' : 'GSD · state unreadable';
-    const parts = [`GSD ${state.phase}`, localizedStatus(state.status, cwd)];
-    const activity = state.status === 'executing' ? executionActivityText(view.activeTasks, cwd) : null;
-    if (activity) parts.push(activity);
-    if (view.checkpoint) parts.push(view.checkpoint);
-    else if (view.progress) parts.push(localizedPlanProgress(view.progress, cwd, true));
-    return `${parts.join(' · ')}${riskIndicator(state)}`;
+    if (!state && !action) return [];
+    if (state?.unreadable) return [widgetColor(31, chinese ? 'GSD · 状态文件无法解析' : 'GSD · state unreadable')];
+    const hasRisks = Boolean(state?.blockers || state?.concerns);
+    if (!hasRisks && !action) return [];
+    const heading = action
+      ? widgetColor(36, chinese ? 'GSD · 下一步' : 'GSD · Next Up')
+      : widgetColor(33, chinese ? 'GSD · 需要关注' : 'GSD · Attention');
+    const rows = [];
+    if (hasRisks) rows.push(widgetRiskLine(state, chinese));
+    if (action) rows.push(action.label.slice(0, 92));
+    const lines = [heading, ...rows.map((row, index) => `${index === rows.length - 1 ? '└─' : '├─'} ${row}`)];
+    if (action) lines.push(`   ${widgetColor(2, action.command)}`);
+    return lines;
   }
 
   function localizedStatusSummary(cwd) {
@@ -891,34 +840,11 @@ module.exports = function gsdPiExtension(pi) {
   }
 
 
-  function widgetLines(cwd, view = statusView(cwd, true)) {
-    const chinese = usesChinese(cwd);
-    const { action, state } = view;
-    if (!state && !action) return [];
-    if (state?.unreadable) return [widgetColor(31, chinese ? 'GSD · 状态文件无法解析' : 'GSD · state unreadable')];
-    const hasRisks = Boolean(state?.blockers || state?.concerns);
-    const activity = state?.status === 'executing' ? executionActivityText(view.activeTasks, cwd) : null;
-    if (!hasRisks && !action && !activity) return [];
-    const heading = action
-      ? widgetColor(36, chinese ? 'GSD · 下一步' : 'GSD · Next Up')
-      : hasRisks
-        ? widgetColor(33, chinese ? 'GSD · 需要关注' : 'GSD · Attention')
-        : widgetColor(36, chinese ? 'GSD · 执行中' : 'GSD · Executing');
-    const rows = [];
-    if (action) rows.push(action.label.slice(0, 92));
-    if (activity) rows.push(activity);
-    if (hasRisks) rows.push(widgetRiskLine(state, chinese));
-    const lines = [heading, ...rows.map((row, index) => `${index === rows.length - 1 ? '└─' : '├─'} ${row}`)];
-    if (action) lines.push(`   ${widgetColor(2, action.command)}`);
-    return lines;
-  }
-
   function updateStatus(ctx) {
     if (!isGsdProject(ctx.cwd)) return;
-    const hasWidget = Boolean(ctx.hasUI && ctx.ui?.setWidget);
-    const view = statusView(ctx.cwd, hasWidget);
-    if (ctx.ui?.setStatus) ctx.ui.setStatus('gsd', statusText(ctx.cwd, view) || '');
-    if (hasWidget) ctx.ui.setWidget('gsd', widgetLines(ctx.cwd, view), { placement: 'aboveEditor' });
+    if (ctx.hasUI && ctx.ui?.setWidget) {
+      ctx.ui.setWidget('gsd', widgetLines(ctx.cwd), { placement: 'aboveEditor' });
+    }
   }
 
   function workflowAdvisory(event, cwd) {
@@ -1462,7 +1388,7 @@ OMP verification contract:
 
   pi.on('tool_result', async (event, ctx) => {
     if (!isGsdProject(ctx.cwd)) return;
-    const taskActivityChanged = trackGsdTaskProgress(event, ctx.cwd) || releaseSettledGsdTasks(event, ctx.cwd);
+    releaseSettledGsdTasks(event, ctx.cwd);
     const output = (event.content || [])
       .filter((chunk) => chunk.type === 'text')
       .map((chunk) => chunk.text)
@@ -1470,13 +1396,14 @@ OMP verification contract:
     const checkpoint = extractCheckpoint(output);
     const taskResult = extractTaskResult(output);
     if (taskResult) persistTaskResult(ctx.cwd, taskResult);
-    if (checkpoint) persistCheckpoint(ctx.cwd, checkpoint);
-    if (checkpoint || taskActivityChanged) updateStatus(ctx);
+    if (checkpoint) {
+      persistCheckpoint(ctx.cwd, checkpoint);
+      updateStatus(ctx);
+    }
   });
 
   pi.on('tool_call', async (event, ctx) => {
-    const taskActivityChanged = trackGsdTaskRequest(event, ctx.cwd);
-    if (taskActivityChanged && isGsdProject(ctx.cwd)) updateStatus(ctx);
+    trackGsdTaskRequest(event, ctx.cwd);
     const taskWaitBlock = nativeTaskWaitBlock(event, ctx.cwd);
     if (taskWaitBlock) return { block: true, reason: taskWaitBlock };
     const nativePhaseBlock = nativePhaseWriteBlock(event, ctx.cwd);
