@@ -87,7 +87,12 @@ test('the /gsd command dispatches through the GSD CLI', async () => {
 test('the /gsd command completes command families and defaults to CLI help', async () => {
   const pi = mockPi();
   gsdPiExtension(pi);
-  assert.deepEqual(pi._recorded.commands.gsd.getArgumentCompletions('pro'), [{ label: 'progress', value: 'progress' }]);
+  assert.deepEqual(pi._recorded.commands.gsd.getArgumentCompletions('prog'), [{ label: 'progress', value: 'progress' }]);
+  assert.deepEqual(pi._recorded.commands.gsd.getArgumentCompletions('agent-'), [{ label: 'agent-skills', value: 'agent-skills' }]);
+  assert.deepEqual(pi._recorded.commands.gsd.getArgumentCompletions('verify-'), [
+    { label: 'verify-path-exists', value: 'verify-path-exists' },
+    { label: 'verify-summary', value: 'verify-summary' },
+  ]);
   assert.equal(pi._recorded.commands.gsd.getArgumentCompletions('progress '), null);
 
   await pi._recorded.commands.gsd.handler('', { cwd: path.resolve(__dirname, '..') });

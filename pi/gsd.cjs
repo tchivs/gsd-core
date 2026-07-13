@@ -31,20 +31,29 @@ function resolveEngineRoot(startDir) {
 const ENGINE_ROOT = resolveEngineRoot(__dirname);
 const GSD_CORE = path.join(ENGINE_ROOT, 'gsd-core');
 
-// ── curated top-level command families (gsd-tools.cjs TOP_LEVEL_USAGE) ──────
+// ── top-level command families (gsd-tools.cjs TOP_LEVEL_USAGE) ─────────────
 // readCmdNames() (scripts/fix-slash-commands.cjs) reads commands/, which pi
 // does NOT install (it ships a single native-extension file, no shared
-// commands/ dir) — it would always return []. This is a self-contained,
-// hand-curated subset of the STABLE top-level families documented by
-// `node gsd-core/bin/gsd-tools.cjs --help` (gsd-tools.cjs:689-705). Named +
-// exported (via _internals) so a test can assert against it directly.
+// commands/ dir) — it would always return []. Keep this self-contained,
+// complete snapshot aligned with `gsd-tools.cjs --help` so native completion
+// exposes every supported top-level command. Regression coverage checks
+// representative command families through the native completion callback.
 const PI_COMMAND_FAMILIES = Object.freeze([
-  'agent', 'capability', 'check', 'commit', 'config-get', 'config-path',
-  'config-set', 'effort', 'git', 'graphify', 'init', 'intel', 'learnings',
-  'list-todos', 'loop', 'milestone', 'phase', 'phases', 'progress',
-  'requirements', 'research-plan', 'research-store', 'resolve-granularity',
-  'resolve-model', 'roadmap', 'scaffold', 'smart-entry', 'state', 'task',
-  'template', 'user-story', 'validate', 'verify', 'workstream', 'worktree',
+  'agent', 'agent-skills', 'assumption-delta', 'audit-open', 'audit-uat',
+  'capability', 'check', 'check-commit', 'classify-confidence', 'commit',
+  'commit-to-subrepo', 'config-ensure-section', 'config-get', 'config-new-project',
+  'config-path', 'config-set', 'current-timestamp', 'detect-custom-files',
+  'docs-init', 'drift-guard', 'effort', 'eval', 'extract-messages', 'find-phase',
+  'from-gsd2', 'frontmatter', 'gap-analysis', 'generate-claude-md',
+  'generate-claude-profile', 'generate-dev-preferences', 'generate-slug', 'git',
+  'graphify', 'history-digest', 'init', 'intel', 'learnings', 'list-seeds',
+  'list-todos', 'loop', 'migrate-config', 'milestone', 'normalize-test-command',
+  'package-legitimacy', 'phase', 'phase-plan-index', 'phases', 'pr-subrepo',
+  'profile-questionnaire', 'profile-sample', 'progress', 'project-instruction-file',
+  'prompt-budget', 'requirements', 'research-plan', 'research-store',
+  'resolve-granularity', 'resolve-model', 'roadmap', 'scaffold', 'smart-entry',
+  'state', 'task', 'template', 'user-story', 'validate', 'verify',
+  'verify-path-exists', 'verify-summary', 'workstream', 'worktree',
 ]);
 
 /**
