@@ -239,6 +239,17 @@ module.exports = function gsdPiExtension(pi) {
     return taskIds;
   }
 
+  function releaseGsdProjectRuntimeState(cwd) {
+    const projectPath = path.resolve(cwd);
+    activeGsdTaskIds.delete(projectPath);
+    nativePhaseCwds.delete(projectPath);
+    onboardingPromptCwds.delete(projectPath);
+    const projectPrefix = `${projectPath}${path.sep}`;
+    for (const advisedFile of advisedFiles) {
+      if (advisedFile === projectPath || advisedFile.startsWith(projectPrefix)) advisedFiles.delete(advisedFile);
+    }
+  }
+
   function trackGsdTaskProgress(event, cwd) {
     const progress = event?.details?.progress;
     if (!Array.isArray(progress)) return;
@@ -1429,6 +1440,10 @@ OMP verification contract:
     if (!ctx.hasUI) return;
     const reminder = stateReminder(ctx.cwd);
     if (reminder) ctx.ui.notify(reminder, 'info');
+  });
+
+  pi.on('session_shutdown', (_event, ctx) => {
+    releaseGsdProjectRuntimeState(ctx.cwd);
   });
 
   pi.on('session_switch', (_event, ctx) => {

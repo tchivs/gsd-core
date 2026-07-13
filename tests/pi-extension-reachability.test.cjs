@@ -70,6 +70,7 @@ test('the OMP bridge registers command, tool, and lifecycle hooks', () => {
   assert.equal(typeof pi._recorded.commands['gsd-discuss-phase'].getArgumentCompletions, 'function');
   assert.equal(typeof pi._recorded.commands['gsd-plan-phase'].getArgumentCompletions, 'function');
   assert.equal(typeof pi._recorded.commands['gsd-verify-work'].getArgumentCompletions, 'function');
+  assert.equal(typeof pi._recorded.events.session_shutdown, 'function');
 });
 
 test('the /gsd command dispatches through the GSD CLI', async () => {
@@ -393,6 +394,41 @@ test('the native phase command blocks parent-checkout source writes', async () =
     toolName: 'write',
     input: { path: '.planning/STATE.md' },
   }, { cwd }), undefined);
+});
+
+test('session shutdown releases native GSD task and phase guards', async () => {
+  const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'gsd-omp-session-shutdown-'));
+  try {
+    fs.mkdirSync(path.join(cwd, '.planning'));
+    fs.writeFileSync(path.join(cwd, '.planning', 'config.json'), JSON.stringify({ hooks: { workflow_guard: true } }));
+    fs.writeFileSync(path.join(cwd, '.planning', 'STATE.md'), '---\ncurrent_phase: "01"\nstatus: executing\n---\n');
+    const pi = mockPi();
+    gsdPiExtension(pi);
+    const ctx = { cwd };
+    await pi._recorded.commands['gsd-execute-phase'].handler('01', ctx);
+    await pi._recorded.events.tool_result({
+      toolName: 'task',
+      content: [],
+      details: { progress: [{ id: 'Phase01Plan01Executor', agent: 'gsd-executor', status: 'running' }] },
+    }, ctx);
+    assert.equal((await pi._recorded.events.tool_call({
+      toolName: 'irc', input: { op: 'wait', from: 'Phase01Plan01Executor' },
+    }, ctx)).block, true);
+    assert.equal((await pi._recorded.events.tool_call({
+      toolName: 'write', input: { path: 'src/proof.ts' },
+    }, ctx)).block, true);
+
+    await pi._recorded.events.session_shutdown({}, ctx);
+
+    assert.equal(await pi._recorded.events.tool_call({
+      toolName: 'irc', input: { op: 'wait', from: 'Phase01Plan01Executor' },
+    }, ctx), undefined);
+    assert.equal(await pi._recorded.events.tool_call({
+      toolName: 'write', input: { path: 'src/proof.ts' },
+    }, ctx), undefined);
+  } finally {
+    cleanup(cwd);
+  }
 });
 
 test('the OMP bridge blocks IRC waits for native GSD task runtime IDs', async () => {
