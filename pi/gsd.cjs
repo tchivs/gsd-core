@@ -685,6 +685,34 @@ module.exports = function gsdPiExtension(pi) {
     return parts.join(' · ');
   }
 
+  function nativeTaskRecovery(cwd) {
+    const failures = readTaskResults(cwd).filter((entry) =>
+      Number.isInteger(entry?.phase) && entry.phase > 0 &&
+      typeof entry.plan === 'string' && entry.plan &&
+      typeof entry.task === 'string' && entry.task &&
+      ['failed', 'cancelled'].includes(entry.status));
+    if (!failures.length) return null;
+    const phase = String(failures[0].phase).padStart(2, '0');
+    return { failures, command: `/gsd-execute-phase ${phase}` };
+  }
+
+  function nativeTaskRecoveryLines(recovery, chinese) {
+    if (!recovery) return [];
+    const entries = recovery.failures.slice(0, 3).map(({ phase, plan, task, status }) => {
+      const outcome = status === 'cancelled'
+        ? (chinese ? '已取消' : 'cancelled')
+        : (chinese ? '失败' : 'failed');
+      return chinese
+        ? `阶段 ${String(phase).padStart(2, '0')} / 计划 ${plan} / 任务 ${task}：${outcome}`
+        : `Phase ${String(phase).padStart(2, '0')} / plan ${plan} / task ${task}: ${outcome}`;
+    });
+    const remaining = recovery.failures.length - entries.length;
+    if (remaining) entries.push(chinese ? `另有 ${remaining} 个失败任务` : `${remaining} more failed task${remaining === 1 ? '' : 's'}`);
+    return chinese
+      ? [`原生任务恢复：${entries.join('；')}`, `恢复命令：${recovery.command}`]
+      : [`Native task recovery: ${entries.join('; ')}`, `Recovery command: ${recovery.command}`];
+  }
+
   function phaseArtifactProgress(cwd, state) {
     const phase = String(state?.phase || '').padStart(2, '0');
     if (!/^\d+$/.test(phase)) return null;
@@ -870,9 +898,11 @@ module.exports = function gsdPiExtension(pi) {
 
   function localizedStatusSummary(cwd) {
     const chinese = usesChinese(cwd);
+    const recovery = nativeTaskRecovery(cwd);
+    const recoveryLines = nativeTaskRecoveryLines(recovery, chinese);
     const state = stateSnapshot(cwd);
-    if (!state) return chinese ? '未检测到 GSD 项目状态。' : 'No GSD project state detected.';
-    if (state.unreadable) return chinese ? 'GSD 状态文件无法解析。' : 'GSD state file could not be parsed.';
+    if (!state) return [chinese ? '未检测到 GSD 项目状态。' : 'No GSD project state detected.', ...recoveryLines].join('\n');
+    if (state.unreadable) return [chinese ? 'GSD 状态文件无法解析。' : 'GSD state file could not be parsed.', ...recoveryLines].join('\n');
     const progressValue = planProgress(cwd, state);
     const progressText = progressValue
       ? localizedPlanProgress(progressValue, cwd)
@@ -885,14 +915,16 @@ module.exports = function gsdPiExtension(pi) {
         `计划：${progressText}`,
         `风险：${riskSummary(state, true)}`,
         `下一步：${localizedNextStep(state.nextStep, cwd) || '请查看 .planning/STATE.md'}`,
+        ...recoveryLines,
       ].join('\n')
       : [
         'GSD Project Status',
         `Phase: ${state.phase}${state.phaseName ? ` / ${state.phaseName}` : ''}`,
         `Status: ${localizedStatus(state.status, cwd)}`,
-        `Plans: ${progressText}`, 
+        `Plans: ${progressText}`,
         `Risks: ${riskSummary(state, false)}`,
         `Next: ${state.nextStep || 'See .planning/STATE.md'}`,
+        ...recoveryLines,
       ].join('\n');
   }
 
@@ -960,18 +992,22 @@ module.exports = function gsdPiExtension(pi) {
 
   async function emitNextStep(ctx, state) {
     const chinese = usesChinese(ctx.cwd);
+    const recovery = nativeTaskRecovery(ctx.cwd);
+    const recoveryLines = nativeTaskRecoveryLines(recovery, chinese);
     const content = chinese
       ? [
         'GSD 下一步',
         `状态：${localizedStatus(state.status, ctx.cwd)}`,
         `风险：${riskSummary(state, true)}`,
         `建议：${localizedNextStep(state.nextStep, ctx.cwd) || '请查看 .planning/STATE.md'}`,
+        ...recoveryLines,
       ].join('\n')
       : [
         'GSD Next Step',
         `Status: ${localizedStatus(state.status, ctx.cwd)}`,
         `Risks: ${riskSummary(state, false)}`,
         `Recommendation: ${state.nextStep || 'See .planning/STATE.md'}`,
+        ...recoveryLines,
       ].join('\n');
     await pi.sendMessage({ customType: 'gsd-next-step', content, display: true }, { triggerTurn: false });
   }
@@ -1054,10 +1090,34 @@ module.exports = function gsdPiExtension(pi) {
   }
 
   async function chooseNextAction(ctx, state) {
-    const continuation = readNextAction(ctx.cwd);
+    const recovery = nativeTaskRecovery(ctx.cwd);
+    const continuation = !recovery && readNextAction(ctx.cwd);
     if (continuation) return choosePendingContinuation(ctx, continuation);
     const chinese = usesChinese(ctx.cwd);
     if (!ctx.hasUI || !ctx.ui?.select) return emitNextStep(ctx, state);
+    if (recovery) {
+      const choices = chinese
+        ? [
+          { label: `恢复阶段 ${String(recovery.failures[0].phase).padStart(2, '0')} 的原生任务`, description: '将恢复命令放入编辑器；不会自动执行。' },
+          { label: '查看项目概览', description: '显示阶段、计划、风险和失败任务。' },
+          { label: '稍后处理', description: '保留失败任务记录，不改变项目状态。' },
+        ]
+        : [
+          { label: `Recover native task for Phase ${String(recovery.failures[0].phase).padStart(2, '0')}`, description: 'Put the recovery command in the editor; do not run it automatically.' },
+          { label: 'View project overview', description: 'Show phase, plans, risks, and failed tasks.' },
+          { label: 'Later', description: 'Keep failed task records without changing project state.' },
+        ];
+      let choice;
+      try {
+        choice = await ctx.ui.select(chinese ? 'GSD 任务恢复' : 'GSD task recovery', choices);
+      } catch {
+        return;
+      }
+      const label = typeof choice === 'string' ? choice : choice?.label || choice?.value;
+      if (label === choices[0].label) ctx.ui.setEditorText?.(recovery.command);
+      else if (label === choices[1].label) await emitNextStep(ctx, state);
+      return;
+    }
     const next = localizedNextStep(state.nextStep, ctx.cwd) || (chinese ? '请查看 .planning/STATE.md' : 'See .planning/STATE.md');
     const choices = state.blockers
       ? (chinese
@@ -1417,7 +1477,8 @@ OMP verification contract:
   pi.registerCommand('gsd-next', {
     description: 'Show or prepare the next localized GSD action.',
     handler: async (_input, ctx) => {
-      const continuation = readNextAction(ctx.cwd);
+      const recovery = nativeTaskRecovery(ctx.cwd);
+      const continuation = !recovery && readNextAction(ctx.cwd);
       if (continuation) {
         await choosePendingContinuation(ctx, continuation);
         return;

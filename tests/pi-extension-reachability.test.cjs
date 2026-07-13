@@ -815,6 +815,46 @@ Status: Ready for 01-05-PLAN.md
   assert.match(englishSummary.message.content, /Risks: ⚠ 2 concerns/);
 });
 
+test('status and next surface native task recovery until completion', async () => {
+  const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'gsd-omp-task-recovery-'));
+  fs.mkdirSync(path.join(cwd, '.planning'));
+  fs.writeFileSync(path.join(cwd, '.planning', 'config.json'), JSON.stringify({ response_language: 'English' }));
+  fs.writeFileSync(path.join(cwd, '.planning', 'STATE.md'), '---\ncurrent_phase: "05"\nstatus: executing\n---\n\n## Current Position\n\nStatus: Continue execution\n');
+  const failed = { phase: 5, plan: '05-08', task: 'Phase05Plan0508Executor', status: 'failed' };
+  fs.writeFileSync(path.join(cwd, '.planning', '.omp-task-results.json'), JSON.stringify([failed]));
+  fs.writeFileSync(path.join(cwd, '.planning', '.omp-next-action.json'), JSON.stringify({
+    label: 'Stale verification continuation',
+    command: '/gsd-verify-work 05',
+    requiresFreshContext: false,
+  }));
+  const pi = mockPi();
+  gsdPiExtension(pi);
+
+  await pi._recorded.commands['gsd-status'].handler('', { cwd });
+  assert.match(pi._recorded.messages.at(-1).message.content, /Native task recovery: Phase 05 \/ plan 05-08 \/ task Phase05Plan0508Executor: failed/);
+  assert.match(pi._recorded.messages.at(-1).message.content, /Recovery command: \/gsd-execute-phase 05/);
+
+  const selections = [];
+  let editorText;
+  await pi._recorded.commands['gsd-next'].handler('', {
+    cwd,
+    hasUI: true,
+    ui: {
+      select: async (_title, choices) => {
+        selections.push(choices);
+        return choices[0].label;
+      },
+      setEditorText: (text) => { editorText = text; },
+    },
+  });
+  assert.match(selections[0][0].label, /Recover native task for Phase 05/);
+  assert.equal(editorText, '/gsd-execute-phase 05');
+
+  fs.writeFileSync(path.join(cwd, '.planning', '.omp-task-results.json'), JSON.stringify([{ ...failed, status: 'completed' }]));
+  await pi._recorded.commands['gsd-status'].handler('', { cwd });
+  assert.doesNotMatch(pi._recorded.messages.at(-1).message.content, /Native task recovery/);
+});
+
 test('the GSD console localizes verification-ready state and instruction', async () => {
   const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'gsd-omp-verification-'));
   fs.mkdirSync(path.join(cwd, '.planning'));
