@@ -405,6 +405,10 @@ test('session shutdown releases native GSD task and phase guards', async () => {
     const pi = mockPi();
     gsdPiExtension(pi);
     const ctx = { cwd };
+    await pi._recorded.events.tool_call({
+      toolName: 'write', input: { path: 'src/advised.ts' },
+    }, ctx);
+    assert.equal(pi._recorded.messages.filter(({ message }) => message.customType === 'gsd-workflow-advisory').length, 1);
     await pi._recorded.commands['gsd-execute-phase'].handler('01', ctx);
     await pi._recorded.events.tool_result({
       toolName: 'task',
@@ -426,6 +430,11 @@ test('session shutdown releases native GSD task and phase guards', async () => {
     assert.equal(await pi._recorded.events.tool_call({
       toolName: 'write', input: { path: 'src/proof.ts' },
     }, ctx), undefined);
+    assert.equal(pi._recorded.messages.filter(({ message }) => message.customType === 'gsd-workflow-advisory').length, 2);
+    await pi._recorded.events.tool_call({
+      toolName: 'write', input: { path: 'src/advised.ts' },
+    }, ctx);
+    assert.equal(pi._recorded.messages.filter(({ message }) => message.customType === 'gsd-workflow-advisory').length, 3);
   } finally {
     cleanup(cwd);
   }
