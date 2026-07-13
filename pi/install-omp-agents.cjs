@@ -32,7 +32,7 @@ function ompResultProtocol(name) {
 
 The orchestrator reconciles native task results before it updates GSD tracking. Do not report a plan as complete until its required commits and SUMMARY.md have been written.
 
-End the native task's final response with exactly one result line, using the phase, plan, and task id assigned by the orchestrator:
+End the native task's final response with exactly one result line, using the phase, plan, and task name (the native runtime ID) assigned by the orchestrator:
 Before any normal final response, call the native hidden yield tool exactly once. Its completion result MUST end with the assigned result line.
 
 \`\`\`text

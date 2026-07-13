@@ -88,6 +88,7 @@ test('the native phase command injects a task-based execution contract', async (
   assert.match(pi._recorded.messages[0].message.content, /create the plan's required commit in the parent checkout/);
   assert.match(pi._recorded.messages[0].message.content, /Never use `irc wait` for task completion/);
   assert.match(pi._recorded.messages[0].message.content, /Use `job poll`/);
+  assert.match(pi._recorded.messages[0].message.content, /spawned native runtime IDs/);
 
 
   await pi._recorded.commands['gsd-execute-phase'].handler('five', { cwd: path.resolve(__dirname, '..') });
@@ -395,6 +396,7 @@ test('the OMP agent installer projects native task and isolation guidance', () =
   assert.match(executor, /stable `name`/);
   assert.match(executor, /shared `context` and `tasks\[\]`/);
   assert.match(executor, /never invent `id` or `description` fields/);
+  assert.match(executor, /task name \(the native runtime ID\) assigned by the orchestrator/);
   assert.match(executor, /MUST terminal-yield immediately after its final verification/);
   assert.match(executor, /call the native hidden yield tool exactly once/);
   assert.match(executor, /\[gsd-task-result\] phase \{PHASE\}/);
@@ -430,6 +432,7 @@ test('the OMP development installer projects every GSD skill with runtime paths'
     assert.match(executeSkill, /shared `context` and `tasks\[\]`/);
     assert.match(executeSkill, /stable `name` to `Phase\{PHASE\}Plan\{PLAN\}Executor`/);
     assert.match(executeSkill, /Do not invent `id` or `description` fields/);
+    assert.match(executeSkill, /native runtime ID/);
   } finally {
     cleanup(runtimeRoot);
   }

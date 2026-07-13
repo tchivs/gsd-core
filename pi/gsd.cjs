@@ -1070,7 +1070,7 @@ Execute GSD phase \`${phaseCommand}\` end-to-end using the execute-phase workflo
 
 OMP dispatch contract:
 - This OMP contract takes precedence over runtime-specific \`Agent(...)\` or \`isolation="worktree"\` directions in execute-phase: on OMP, native \`task\` with \`isolated: true\` is the only valid isolated executor dispatch.
-- Use native \`task\` for every non-interactive executor dispatch. One plan is one task; independent plans in a wave are one task batch. Never use \`irc wait\` for task completion: IRC is coordination-only. Use \`job poll\` for the spawned task ids and consume the native task result before dispatching the next wave.
+- Use native \`task\` for every non-interactive executor dispatch. One plan is one task; independent plans in a wave are one task batch. Never use \`irc wait\` for task completion: IRC is coordination-only. Use \`job poll\` for the spawned native runtime IDs and consume the native task result before dispatching the next wave.
 - For a wave, call native \`task\` with its batch shape: a shared \`context\` plus \`tasks\`, where each executor item has \`name: "Phase${phase}Plan{PLAN}Executor"\`, \`agent: "gsd-executor"\`, the complete plan assignment in \`task\`, and \`isolated: true\`. Use \`name\`, not an invented \`id\` or \`description\` field.
 - Every executor that writes repository files MUST request \`isolated: true\`. If isolated execution is unavailable, stop and report the blocked plan; never fall back to main-checkout writes or manual \`git worktree\` commands.
 - \`--interactive\` is the only sequential inline mode. All other executor work uses native task dispatch.
