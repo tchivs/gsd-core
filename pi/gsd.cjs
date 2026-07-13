@@ -1350,8 +1350,9 @@ OMP verification contract:
 
   pi.registerCommand('gsd', {
     description: 'Invoke GSD CLI: /gsd <family> <subcommand> [args].',
+    getArgumentCompletions,
     handler: async (input, ctx) => {
-      const [family = 'query', subcommand = 'help', ...args] = parseCommandLine(input);
+      const { family, subcommand, args } = parseGsdCommandArgs(input);
       const result = await invokeAsync({ family, subcommand, args, cwd: ctx.cwd });
       const nextAction = result.exitCode === 0 && extractNextAction(result.stdout);
       const checkpoint = result.exitCode === 0 && extractCheckpoint(result.stdout);

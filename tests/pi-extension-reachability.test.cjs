@@ -66,6 +66,7 @@ test('the OMP bridge registers command, tool, and lifecycle hooks', () => {
   assert.equal(typeof pi._recorded.events.session_branch, 'function');
   assert.equal(typeof pi._recorded.events.session_tree, 'function');
   assert.equal(typeof pi._recorded.events.session_compact, 'function');
+  assert.equal(typeof pi._recorded.commands.gsd.getArgumentCompletions, 'function');
   assert.equal(typeof pi._recorded.commands['gsd-execute-phase'].getArgumentCompletions, 'function');
   assert.equal(typeof pi._recorded.commands['gsd-discuss-phase'].getArgumentCompletions, 'function');
   assert.equal(typeof pi._recorded.commands['gsd-plan-phase'].getArgumentCompletions, 'function');
@@ -81,6 +82,17 @@ test('the /gsd command dispatches through the GSD CLI', async () => {
   assert.equal(pi._recorded.messages[0].message.customType, 'gsd-command-result');
   assert.match(pi._recorded.messages[0].message.content, /^✓ GSD command completed/);
   assert.match(pi._recorded.messages[0].message.content, /"next"\s*:\s*"01\.1"/);
+});
+
+test('the /gsd command completes command families and defaults to CLI help', async () => {
+  const pi = mockPi();
+  gsdPiExtension(pi);
+  assert.deepEqual(pi._recorded.commands.gsd.getArgumentCompletions('pro'), [{ label: 'progress', value: 'progress' }]);
+  assert.equal(pi._recorded.commands.gsd.getArgumentCompletions('progress '), null);
+
+  await pi._recorded.commands.gsd.handler('', { cwd: path.resolve(__dirname, '..') });
+  assert.match(pi._recorded.messages.at(-1).message.content, /^✓ GSD command completed/);
+  assert.match(pi._recorded.messages.at(-1).message.content, /Usage: gsd-tools/);
 });
 
 test('the native phase command injects a task-based execution contract', async () => {
