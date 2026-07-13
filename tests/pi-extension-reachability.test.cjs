@@ -57,6 +57,14 @@ test('the OMP bridge registers command, tool, and lifecycle hooks', () => {
   assert.equal(typeof pi._recorded.events.tool_call, 'function');
   assert.equal(typeof pi._recorded.events.tool_result, 'function');
   assert.equal(typeof pi._recorded.events.turn_end, 'function');
+  assert.equal(typeof pi._recorded.events.session_switch, 'function');
+  assert.equal(typeof pi._recorded.events.session_branch, 'function');
+  assert.equal(typeof pi._recorded.events.session_tree, 'function');
+  assert.equal(typeof pi._recorded.events.session_compact, 'function');
+  assert.equal(typeof pi._recorded.commands['gsd-execute-phase'].getArgumentCompletions, 'function');
+  assert.equal(typeof pi._recorded.commands['gsd-discuss-phase'].getArgumentCompletions, 'function');
+  assert.equal(typeof pi._recorded.commands['gsd-plan-phase'].getArgumentCompletions, 'function');
+  assert.equal(typeof pi._recorded.commands['gsd-verify-work'].getArgumentCompletions, 'function');
 });
 
 test('the /gsd command dispatches through the GSD CLI', async () => {
@@ -100,6 +108,65 @@ test('the native phase command injects a task-based execution contract', async (
   assert.match(pi._recorded.messages.at(-1).message.content, /`05 --wave 2 --cross-ai --no-transition`/);
   await pi._recorded.commands['gsd-execute-phase'].handler('05 --wave 0', { cwd: path.resolve(__dirname, '..') });
   assert.equal(pi._recorded.messages.at(-1).message.customType, 'gsd-execute-input-error');
+});
+
+test('native phase commands complete only the current command phase argument', () => {
+  const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'gsd-omp-phase-completions-'));
+  const previousCwd = process.cwd();
+  try {
+    fs.mkdirSync(path.join(cwd, '.planning'));
+    fs.writeFileSync(path.join(cwd, '.planning', 'ROADMAP.md'), [
+      '- [ ] **Phase 1: Execute** - Incomplete plans.',
+      '- [ ] **Phase 2: Plan** - No plans yet.',
+      '- [x] **Phase 3: Verify** - Completed plans.',
+    ].join('\n'));
+    fs.mkdirSync(path.join(cwd, '.planning', 'phases', '01-execute'), { recursive: true });
+    fs.mkdirSync(path.join(cwd, '.planning', 'phases', '03-verify'), { recursive: true });
+    fs.writeFileSync(path.join(cwd, '.planning', 'phases', '01-execute', '01-01-PLAN.md'), 'plan');
+    fs.writeFileSync(path.join(cwd, '.planning', 'phases', '03-verify', '03-01-PLAN.md'), 'plan');
+    fs.writeFileSync(path.join(cwd, '.planning', 'phases', '03-verify', '03-01-SUMMARY.md'), 'summary');
+    process.chdir(cwd);
+    const pi = mockPi();
+    gsdPiExtension(pi);
+
+    assert.deepEqual(pi._recorded.commands['gsd-execute-phase'].getArgumentCompletions(''), [{
+      label: 'Phase 1: Execute', value: '01', description: '0/1 plans complete',
+    }]);
+    assert.deepEqual(pi._recorded.commands['gsd-plan-phase'].getArgumentCompletions(''), [{
+      label: 'Phase 2: Plan', value: '02', description: 'CONTEXT missing · RESEARCH missing · no plans',
+    }]);
+    assert.deepEqual(pi._recorded.commands['gsd-verify-work'].getArgumentCompletions(''), [{
+      label: 'Phase 3: Verify', value: '03', description: '1/1 plans complete · UAT pending',
+    }]);
+    assert.deepEqual(pi._recorded.commands['gsd-discuss-phase'].getArgumentCompletions('03'), [{
+      label: 'Phase 3: Verify', value: '03', description: 'Discuss this phase',
+    }]);
+    assert.equal(pi._recorded.commands['gsd-execute-phase'].getArgumentCompletions('01 '), null);
+  } finally {
+    process.chdir(previousCwd);
+    cleanup(cwd);
+  }
+});
+
+test('session navigation refreshes the native GSD widget', async () => {
+  const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'gsd-omp-session-navigation-'));
+  try {
+    fs.mkdirSync(path.join(cwd, '.planning'));
+    fs.writeFileSync(path.join(cwd, '.planning', 'STATE.md'), '---\ncurrent_phase: "01"\nstatus: executing\n---\n');
+    const pi = mockPi();
+    gsdPiExtension(pi);
+    const widgets = [];
+    const ctx = { cwd, hasUI: true, ui: { setWidget: (key, lines, options) => widgets.push({ key, lines, options }) } };
+    await pi._recorded.events.session_switch({}, ctx);
+    await pi._recorded.events.session_branch({}, ctx);
+    await pi._recorded.events.session_tree({}, ctx);
+    await pi._recorded.events.session_compact({}, ctx);
+
+    assert.equal(widgets.length, 4);
+    assert.ok(widgets.every(({ key, options }) => key === 'gsd' && options.placement === 'aboveEditor'));
+  } finally {
+    cleanup(cwd);
+  }
 });
 
 test('the execute command selects an unfinished phase and rejects an empty execution queue', async () => {

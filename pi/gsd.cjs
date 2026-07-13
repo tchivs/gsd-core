@@ -667,6 +667,31 @@ module.exports = function gsdPiExtension(pi) {
     }
   }
 
+  function discussablePhaseOptions(cwd) {
+    let roadmap;
+    try {
+      roadmap = fs.readFileSync(path.join(cwd, '.planning', 'ROADMAP.md'), 'utf8');
+    } catch {
+      return [];
+    }
+    return [...roadmap.matchAll(/^-\s+\[[ xX]\]\s+\*\*Phase\s+(\d+):\s+(.+?)\*\*/gmi)]
+      .map(([, number, name]) => ({
+        phase: String(Number(number)).padStart(2, '0'),
+        label: `Phase ${Number(number)}: ${name.trim()}`,
+        description: 'Discuss this phase',
+      }));
+  }
+
+  function phaseArgumentCompletions(argumentPrefix, optionsForCwd) {
+    const input = String(argumentPrefix || '');
+    if (/\s$/.test(input) || /\s/.test(input.trim())) return null;
+    const prefix = input.trim().toLowerCase();
+    const completions = optionsForCwd(process.cwd())
+      .filter(({ phase, label }) => !prefix || phase.startsWith(prefix) || label.toLowerCase().startsWith(prefix))
+      .map(({ phase, label, description }) => ({ label, value: phase, description }));
+    return completions.length ? completions : null;
+  }
+
   function executablePhaseOptions(cwd) {
     let roadmap;
     try {
@@ -1258,6 +1283,7 @@ OMP verification contract:
 
   pi.registerCommand('gsd-execute-phase', {
     description: 'Choose and execute a GSD phase through OMP native task waves.',
+    getArgumentCompletions: (input) => phaseArgumentCompletions(input, executablePhaseOptions),
     handler: async (input, ctx) => {
       if (!String(input || '').trim()) return chooseExecutionPhase(ctx);
       return launchNativePhaseExecution(ctx, input);
@@ -1266,6 +1292,7 @@ OMP verification contract:
 
   pi.registerCommand('gsd-discuss-phase', {
     description: 'Discuss a GSD phase with native OMP question controls.',
+    getArgumentCompletions: (input) => phaseArgumentCompletions(input, discussablePhaseOptions),
     handler: async (input, ctx) => {
       const prompt = nativeDiscussPrompt(input);
       if (!prompt) {
@@ -1278,6 +1305,7 @@ OMP verification contract:
 
   pi.registerCommand('gsd-plan-phase', {
     description: 'Choose and plan a GSD phase with native OMP preflight.',
+    getArgumentCompletions: (input) => phaseArgumentCompletions(input, plannablePhaseOptions),
     handler: async (input, ctx) => {
       if (!String(input || '').trim()) return choosePlanningPhase(ctx);
       return launchNativePhasePlanning(ctx, input);
@@ -1286,6 +1314,7 @@ OMP verification contract:
 
   pi.registerCommand('gsd-verify-work', {
     description: 'Choose and verify a completed GSD phase through native UAT.',
+    getArgumentCompletions: (input) => phaseArgumentCompletions(input, verifiablePhaseOptions),
     handler: async (input, ctx) => {
       if (!String(input || '').trim()) return chooseVerificationPhase(ctx);
       return launchNativePhaseVerification(ctx, input);
@@ -1384,6 +1413,22 @@ OMP verification contract:
     if (!ctx.hasUI) return;
     const reminder = stateReminder(ctx.cwd);
     if (reminder) ctx.ui.notify(reminder, 'info');
+  });
+
+  pi.on('session_switch', (_event, ctx) => {
+    updateStatus(ctx);
+  });
+
+  pi.on('session_branch', (_event, ctx) => {
+    updateStatus(ctx);
+  });
+
+  pi.on('session_tree', (_event, ctx) => {
+    updateStatus(ctx);
+  });
+
+  pi.on('session_compact', (_event, ctx) => {
+    updateStatus(ctx);
   });
 
   pi.on('turn_end', async (_event, ctx) => {
