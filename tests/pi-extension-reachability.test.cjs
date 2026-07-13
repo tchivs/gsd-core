@@ -90,6 +90,12 @@ test('the native phase command injects a task-based execution contract', async (
   await pi._recorded.commands['gsd-execute-phase'].handler('five', { cwd: path.resolve(__dirname, '..') });
   assert.equal(pi._recorded.messages.at(-1).message.customType, 'gsd-execute-input-error');
   assert.equal(pi._recorded.messages.at(-1).options.triggerTurn, false);
+
+  await pi._recorded.commands['gsd-execute-phase'].handler('05 --wave 2 --cross-ai --no-transition', { cwd: path.resolve(__dirname, '..') });
+  assert.equal(pi._recorded.messages.at(-1).message.customType, 'gsd-native-execute-phase');
+  assert.match(pi._recorded.messages.at(-1).message.content, /`05 --wave 2 --cross-ai --no-transition`/);
+  await pi._recorded.commands['gsd-execute-phase'].handler('05 --wave 0', { cwd: path.resolve(__dirname, '..') });
+  assert.equal(pi._recorded.messages.at(-1).message.customType, 'gsd-execute-input-error');
 });
 
 test('the execute command selects an unfinished phase and rejects an empty execution queue', async () => {

@@ -1071,9 +1071,9 @@ module.exports = function gsdPiExtension(pi) {
     for (let index = 0; index < options.length; index += 1) {
       const option = options[index];
       if (option === '--wave') {
-        if (!/^\d+$/.test(options[index + 1] || '')) return null;
+        if (!/^[1-9]\d*$/.test(options[index + 1] || '')) return null;
         index += 1;
-      } else if (!['--gaps-only', '--interactive', '--tdd', '--auto'].includes(option)) {
+      } else if (!['--gaps-only', '--interactive', '--tdd', '--auto', '--cross-ai', '--no-cross-ai', '--no-transition'].includes(option)) {
         return null;
       }
     }
@@ -1099,7 +1099,7 @@ OMP dispatch contract:
   async function launchNativePhaseExecution(ctx, input) {
     const prompt = nativeExecutePrompt(input);
     if (!prompt) {
-      await pi.sendMessage({ customType: 'gsd-execute-input-error', content: 'Usage: /gsd-execute-phase <phase> [--wave N] [--gaps-only] [--interactive] [--tdd] [--auto]', display: true }, { triggerTurn: false });
+      await pi.sendMessage({ customType: 'gsd-execute-input-error', content: 'Usage: /gsd-execute-phase <phase> [--wave N] [--gaps-only] [--interactive] [--tdd] [--auto] [--cross-ai] [--no-cross-ai] [--no-transition]', display: true }, { triggerTurn: false });
       return;
     }
     nativePhaseCwds.add(path.resolve(ctx.cwd));
@@ -1118,7 +1118,7 @@ OMP dispatch contract:
       return;
     }
     if (!ctx.hasUI || !ctx.ui?.select) {
-      await pi.sendMessage({ customType: 'gsd-execute-input-error', content: 'Usage: /gsd-execute-phase <phase> [--wave N] [--gaps-only] [--interactive] [--tdd] [--auto]', display: true }, { triggerTurn: false });
+      await pi.sendMessage({ customType: 'gsd-execute-input-error', content: 'Usage: /gsd-execute-phase <phase> [--wave N] [--gaps-only] [--interactive] [--tdd] [--auto] [--cross-ai] [--no-cross-ai] [--no-transition]', display: true }, { triggerTurn: false });
       return;
     }
     let selection;
