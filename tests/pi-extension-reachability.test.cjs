@@ -875,6 +875,31 @@ test('the first interactive GSD session persists language and interaction prefer
   assert.ok(notices.some(({ message }) => message === 'GSD interaction set to terminal text'));
 });
 
+test('the onboarding prompt is deduplicated across equivalent project paths', async () => {
+  const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'gsd-omp-onboarding-canonical-'));
+  fs.mkdirSync(path.join(cwd, '.planning'));
+  const configPath = path.join(cwd, '.planning', 'config.json');
+  fs.writeFileSync(path.join(cwd, '.planning', 'STATE.md'), '---\ncurrent_phase: "01"\nstatus: executing\n---\n');
+  fs.writeFileSync(configPath, JSON.stringify({}));
+  const pi = mockPi();
+  gsdPiExtension(pi);
+  const prompts = [];
+  const selections = ['English', 'OMP interactive (recommended)'];
+  const ui = {
+    select: async (title) => {
+      prompts.push(title);
+      return selections.shift();
+    },
+  };
+
+  pi._recorded.events.session_start({}, { cwd, hasUI: true, ui });
+  pi._recorded.events.session_start({}, { cwd: path.relative(process.cwd(), cwd), hasUI: true, ui });
+  await new Promise(setImmediate);
+
+  assert.deepEqual(prompts, ['GSD language / GSD 界面语言', 'GSD interaction style']);
+  assert.equal(JSON.parse(fs.readFileSync(configPath, 'utf8')).response_language, 'English');
+});
+
 test('the onboarding preserves an explicit interaction preference', async () => {
   const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'gsd-omp-onboarding-explicit-'));
   fs.mkdirSync(path.join(cwd, '.planning'));

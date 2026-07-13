@@ -563,12 +563,13 @@ module.exports = function gsdPiExtension(pi) {
   }
 
   function scheduleOnboardingPrompt(ctx) {
-    if (onboardingPromptCwds.has(ctx.cwd)) return;
-    onboardingPromptCwds.add(ctx.cwd);
+    const projectPath = path.resolve(ctx.cwd);
+    if (onboardingPromptCwds.has(projectPath)) return;
+    onboardingPromptCwds.add(projectPath);
     void promptForOnboarding(ctx)
       .then((changed) => { if (changed) updateStatus(ctx); })
       .catch(() => {})
-      .finally(() => onboardingPromptCwds.delete(ctx.cwd));
+      .finally(() => onboardingPromptCwds.delete(projectPath));
   }
 
   function stateReminder(cwd) {
