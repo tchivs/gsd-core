@@ -242,12 +242,18 @@ module.exports = function gsdPiExtension(pi) {
   function trackGsdTaskProgress(event, cwd) {
     const progress = event?.details?.progress;
     if (!Array.isArray(progress)) return;
-    let taskIds;
+    const projectPath = path.resolve(cwd);
+    let taskIds = activeGsdTaskIds.get(projectPath);
     for (const task of progress) {
       if (typeof task?.agent !== 'string' || !task.agent.startsWith('gsd-') || typeof task.id !== 'string' || !task.id) continue;
+      if (['completed', 'failed', 'aborted'].includes(task.status)) {
+        taskIds?.delete(task.id);
+        continue;
+      }
       taskIds ||= taskIdsFor(cwd);
       taskIds.add(task.id);
     }
+    if (taskIds?.size === 0) activeGsdTaskIds.delete(projectPath);
   }
 
   function releaseSettledGsdTasks(event, cwd) {

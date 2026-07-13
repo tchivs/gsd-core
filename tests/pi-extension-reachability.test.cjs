@@ -304,7 +304,7 @@ test('the OMP bridge blocks IRC waits for native GSD task runtime IDs', async ()
   await pi._recorded.events.tool_result({
     toolName: 'task',
     content: [],
-    details: { progress: [{ id: 'FixPhase02ReviewFindings-2', agent: 'gsd-code-fixer' }] },
+    details: { progress: [{ id: 'FixPhase02ReviewFindings-2', agent: 'gsd-code-fixer', status: 'running' }] },
   }, ctx);
 
   const blocked = await pi._recorded.events.tool_call({
@@ -316,9 +316,9 @@ test('the OMP bridge blocks IRC waits for native GSD task runtime IDs', async ()
   assert.match(blocked.reason, /job poll/);
 
   await pi._recorded.events.tool_result({
-    toolName: 'job',
+    toolName: 'task',
     content: [],
-    details: { jobs: [{ id: 'FixPhase02ReviewFindings-2', status: 'completed' }] },
+    details: { progress: [{ id: 'FixPhase02ReviewFindings-2', agent: 'gsd-code-fixer', status: 'completed' }] },
   }, ctx);
   assert.equal(await pi._recorded.events.tool_call({
     toolName: 'irc',
