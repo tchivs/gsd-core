@@ -227,7 +227,7 @@ module.exports = function gsdPiExtension(pi) {
   const advisedFiles = new Set();
   const activeGsdTaskIds = new Map();
   const nativePhaseCwds = new Set();
-  const languagePromptCwds = new Set();
+  const onboardingPromptCwds = new Set();
 
   function taskIdsFor(cwd) {
     const projectPath = path.resolve(cwd);
@@ -487,11 +487,17 @@ module.exports = function gsdPiExtension(pi) {
   }
 
 
-  function persistResponseLanguage(cwd, config, language) {
+  function hasExplicitTextMode(config) {
+    return Object.prototype.hasOwnProperty.call(config?.workflow || {}, 'text_mode');
+  }
+
+  function persistOnboarding(cwd, config, language, textMode) {
     const configPath = path.join(cwd, '.planning', 'config.json');
     const temporaryPath = `${configPath}.${process.pid}.tmp`;
+    const nextConfig = { ...config, response_language: language };
+    if (textMode !== undefined) nextConfig.workflow = { ...(config.workflow || {}), text_mode: textMode };
     try {
-      fs.writeFileSync(temporaryPath, JSON.stringify({ ...config, response_language: language }, null, 2) + '\n');
+      fs.writeFileSync(temporaryPath, JSON.stringify(nextConfig, null, 2) + '\n');
       fs.renameSync(temporaryPath, configPath);
       return true;
     } catch {
@@ -500,27 +506,50 @@ module.exports = function gsdPiExtension(pi) {
     }
   }
 
-  async function promptForLanguage(ctx) {
+  async function promptForOnboarding(ctx) {
     const config = readConfig(ctx.cwd);
     if (!ctx.hasUI || !isGsdProject(ctx.cwd) || !config || config.response_language || typeof ctx.ui?.select !== 'function') return false;
-    const selection = await ctx.ui.select('GSD language / GSD 界面语言', [
+    const languageSelection = await ctx.ui.select('GSD language / GSD 界面语言', [
       { label: '简体中文', description: 'Use Simplified Chinese for GSD status and guidance.' },
       { label: 'English', description: 'Use English for GSD status and guidance.' },
     ]);
-    const label = typeof selection === 'string' ? selection : selection?.label || selection?.value;
-    const language = label === '简体中文' ? 'Simplified Chinese' : label === 'English' ? 'English' : null;
-    if (!language || !persistResponseLanguage(ctx.cwd, config, language)) return false;
+    const languageLabel = typeof languageSelection === 'string' ? languageSelection : languageSelection?.label || languageSelection?.value;
+    const language = languageLabel === '简体中文' ? 'Simplified Chinese' : languageLabel === 'English' ? 'English' : null;
+    if (!language) return false;
+
+    let textMode;
+    if (!hasExplicitTextMode(config)) {
+      const interactionSelection = await ctx.ui.select(
+        language === 'Simplified Chinese' ? 'GSD 交互方式' : 'GSD interaction style',
+        language === 'Simplified Chinese'
+          ? [
+            { label: 'OMP 交互式（推荐）', description: '使用结构化单选和多选控件。' },
+            { label: '终端文本式', description: '显示编号列表；通过输入 1,3 作答。' },
+          ]
+          : [
+            { label: 'OMP interactive (recommended)', description: 'Use structured single-select and multi-select controls.' },
+            { label: 'Terminal text', description: 'Show numbered lists; answer by typing 1,3.' },
+          ],
+      );
+      const interactionLabel = typeof interactionSelection === 'string' ? interactionSelection : interactionSelection?.label || interactionSelection?.value;
+      if (interactionLabel === '终端文本式' || interactionLabel === 'Terminal text') textMode = true;
+      else if (interactionLabel === 'OMP 交互式（推荐）' || interactionLabel === 'OMP interactive (recommended)') textMode = false;
+      else return false;
+    }
+
+    if (!persistOnboarding(ctx.cwd, config, language, textMode)) return false;
     ctx.ui.notify?.(`GSD language set to ${language}`, 'info');
+    if (textMode !== undefined) ctx.ui.notify?.(textMode ? 'GSD interaction set to terminal text' : 'GSD interaction set to OMP interactive', 'info');
     return true;
   }
 
-  function scheduleLanguagePrompt(ctx) {
-    if (languagePromptCwds.has(ctx.cwd)) return;
-    languagePromptCwds.add(ctx.cwd);
-    void promptForLanguage(ctx)
+  function scheduleOnboardingPrompt(ctx) {
+    if (onboardingPromptCwds.has(ctx.cwd)) return;
+    onboardingPromptCwds.add(ctx.cwd);
+    void promptForOnboarding(ctx)
       .then((changed) => { if (changed) updateStatus(ctx); })
       .catch(() => {})
-      .finally(() => languagePromptCwds.delete(ctx.cwd));
+      .finally(() => onboardingPromptCwds.delete(ctx.cwd));
   }
 
   function stateReminder(cwd) {
@@ -637,6 +666,27 @@ module.exports = function gsdPiExtension(pi) {
     } catch {
       return null;
     }
+  }
+
+  function executablePhaseOptions(cwd) {
+    let roadmap;
+    try {
+      roadmap = fs.readFileSync(path.join(cwd, '.planning', 'ROADMAP.md'), 'utf8');
+    } catch {
+      return [];
+    }
+    return [...roadmap.matchAll(/^-\s+\[[ xX]\]\s+\*\*Phase\s+(\d+):\s+(.+?)\*\*/gmi)]
+      .map(([, number, name]) => {
+        const phase = String(Number(number)).padStart(2, '0');
+        const progress = phaseArtifactProgress(cwd, { phase });
+        if (!progress || progress.summaries >= progress.plans) return null;
+        return {
+          phase,
+          label: `Phase ${Number(number)}: ${name.trim()}`,
+          description: `${progress.summaries}/${progress.plans} plans complete`,
+        };
+      })
+      .filter(Boolean);
   }
 
   function planProgress(cwd, state, width = 10) {
@@ -831,6 +881,16 @@ module.exports = function gsdPiExtension(pi) {
     });
   }
 
+  function compactNextLabel(next, chinese) {
+    const normalized = String(next || '').replace(/\s+/g, ' ').trim();
+    const compact = normalized.length > 48 ? `${normalized.slice(0, 47)}…` : normalized;
+    return chinese ? `继续：${compact}` : `Continue: ${compact}`;
+  }
+
+  function continuationEditorText(action) {
+    return `${action.requiresFreshContext ? '/new\n' : ''}${action.command}`;
+  }
+
   async function choosePendingContinuation(ctx, action) {
     const chinese = usesChinese(ctx.cwd);
     if (!ctx.hasUI || !ctx.ui?.select) {
@@ -839,15 +899,15 @@ module.exports = function gsdPiExtension(pi) {
     }
     const choices = chinese
       ? [
-        { label: '新开 GSD Session', description: '新 session 中展示下一步，不自动执行。' },
-        { label: '复制后续命令', description: '将 /new 和后续 GSD 命令放入编辑器。' },
-        { label: '查看状态与风险', description: '先确认当前项目状态。' },
+        { label: compactNextLabel(action.label, true), description: '将续接命令放入编辑器；不会自动执行。' },
+        { label: '新开 GSD Session', description: '在新 session 中展示下一步，不自动执行。' },
+        { label: '查看项目概览', description: '确认当前状态、风险和待处理动作。' },
         { label: '稍后处理', description: '保留待处理的下一步。' },
       ]
       : [
+        { label: compactNextLabel(action.label, false), description: 'Put the continuation command in the editor; do not run it automatically.' },
         { label: 'Start new GSD session', description: 'Show the next step in a new session without running it.' },
-        { label: 'Copy continuation commands', description: 'Put /new and the next GSD command in the editor.' },
-        { label: 'Review status and risks', description: 'Confirm the current project state first.' },
+        { label: 'View project overview', description: 'Review current status, risks, and the pending action.' },
         { label: 'Later', description: 'Keep this next step pending.' },
       ];
     let choice;
@@ -857,34 +917,47 @@ module.exports = function gsdPiExtension(pi) {
       return;
     }
     const label = typeof choice === 'string' ? choice : choice?.label || choice?.value;
-    if (label === choices[0].label) return startContinuationSession(ctx, action);
-    if (label === choices[1].label) {
-      ctx.ui.setEditorText?.(`/new\n${action.command}`);
+    if (label === choices[0].label) {
+      ctx.ui.setEditorText?.(continuationEditorText(action));
       return;
     }
+    if (label === choices[1].label) return startContinuationSession(ctx, action);
     if (label === choices[2].label) {
       await pi.sendMessage({ customType: 'gsd-continuation', content: `${continuationSummary(action, chinese)}\n\n${localizedStatusSummary(ctx.cwd)}`, display: true }, { triggerTurn: false });
     }
   }
-
-
 
   async function chooseNextAction(ctx, state) {
     const continuation = readNextAction(ctx.cwd);
     if (continuation) return choosePendingContinuation(ctx, continuation);
     const chinese = usesChinese(ctx.cwd);
     if (!ctx.hasUI || !ctx.ui?.select) return emitNextStep(ctx, state);
-    const choices = chinese
-      ? [
-        { label: '查看状态', description: '显示阶段、计划和下一步。' },
-        { label: '查看风险', description: '显示阻塞和关注项。' },
-        { label: '准备下一步', description: '将下一步说明放入编辑器。' },
-      ]
-      : [
-        { label: 'View status', description: 'Show phase, plan progress, and next step.' },
-        { label: 'Review risks', description: 'Show blockers and concerns.' },
-        { label: 'Prepare next step', description: 'Put the next-step instruction in the editor.' },
-      ];
+    const next = localizedNextStep(state.nextStep, ctx.cwd) || (chinese ? '请查看 .planning/STATE.md' : 'See .planning/STATE.md');
+    const choices = state.blockers
+      ? (chinese
+        ? [
+          { label: '处理阻塞', description: `${riskSummary(state, true)}；下一步在解除前不可执行。` },
+          { label: '查看项目概览', description: '显示阶段、计划、风险和建议。' },
+          { label: '稍后处理', description: '不改变当前项目状态。' },
+        ]
+        : [
+          { label: 'Resolve blockers', description: `${riskSummary(state, false)}; the next action cannot run until resolved.` },
+          { label: 'View project overview', description: 'Show phase, plan progress, risks, and recommendation.' },
+          { label: 'Later', description: 'Leave the current project state unchanged.' },
+        ])
+      : (chinese
+        ? [
+          { label: compactNextLabel(next, true), description: '将推荐下一步放入编辑器；不会自动执行。' },
+          { label: '查看项目概览', description: '显示阶段、计划、风险和建议。' },
+          { label: '查看风险', description: '显示阻塞和关注项。' },
+          { label: '稍后处理', description: '不改变当前项目状态。' },
+        ]
+        : [
+          { label: compactNextLabel(next, false), description: 'Put the recommended next step in the editor; do not run it automatically.' },
+          { label: 'View project overview', description: 'Show phase, plan progress, risks, and recommendation.' },
+          { label: 'Review risks', description: 'Show blockers and concerns.' },
+          { label: 'Later', description: 'Leave the current project state unchanged.' },
+        ]);
     let choice;
     try {
       choice = await ctx.ui.select(chinese ? 'GSD 下一步' : 'GSD next step', choices);
@@ -892,16 +965,7 @@ module.exports = function gsdPiExtension(pi) {
       return;
     }
     const label = typeof choice === 'string' ? choice : choice?.label || choice?.value;
-    if (label === choices[0].label) return emitNextStep(ctx, state);
-    if (label === choices[1].label) {
-      await pi.sendMessage({
-        customType: 'gsd-risk-details',
-        content: `${chinese ? 'GSD 风险' : 'GSD Risks'}\n${riskDetails(state, chinese)}`,
-        display: true,
-      }, { triggerTurn: false });
-      return;
-    }
-    if (state.blockers) {
+    if (state.blockers && label === choices[0].label) {
       await pi.sendMessage({
         customType: 'gsd-next-blocked',
         content: chinese ? `下一步已暂停：${riskSummary(state, true)}。\n${riskDetails(state, true)}` : `Next step is paused: ${riskSummary(state, false)}.\n${riskDetails(state, false)}`,
@@ -909,11 +973,18 @@ module.exports = function gsdPiExtension(pi) {
       }, { triggerTurn: false });
       return;
     }
-    const next = localizedNextStep(state.nextStep, ctx.cwd) || (chinese ? '请查看 .planning/STATE.md' : 'See .planning/STATE.md');
-    const confirmed = ctx.ui.confirm
-      ? await ctx.ui.confirm(chinese ? '准备下一步' : 'Prepare next step', next)
-      : true;
-    if (confirmed && ctx.ui.setEditorText) ctx.ui.setEditorText(next);
+    if (!state.blockers && label === choices[0].label) {
+      ctx.ui.setEditorText?.(next);
+      return;
+    }
+    if (label === choices[1].label) return emitNextStep(ctx, state);
+    if (!state.blockers && label === choices[2].label) {
+      await pi.sendMessage({
+        customType: 'gsd-risk-details',
+        content: `${chinese ? 'GSD 风险' : 'GSD Risks'}\n${riskDetails(state, chinese)}`,
+        display: true,
+      }, { triggerTurn: false });
+    }
   }
 
   function nativeExecutePrompt(input) {
@@ -948,16 +1019,76 @@ OMP dispatch contract:
 `;
   }
 
+  async function launchNativePhaseExecution(ctx, input) {
+    const prompt = nativeExecutePrompt(input);
+    if (!prompt) {
+      await pi.sendMessage({ customType: 'gsd-execute-input-error', content: 'Usage: /gsd-execute-phase <phase> [--wave N] [--gaps-only] [--interactive] [--tdd] [--auto]', display: true }, { triggerTurn: false });
+      return;
+    }
+    nativePhaseCwds.add(path.resolve(ctx.cwd));
+    await pi.sendMessage({ customType: 'gsd-native-execute-phase', content: prompt, display: true }, { triggerTurn: true });
+  }
+
+  async function chooseExecutionPhase(ctx) {
+    const chinese = usesChinese(ctx.cwd);
+    const phases = executablePhaseOptions(ctx.cwd);
+    if (!phases.length) {
+      await pi.sendMessage({
+        customType: 'gsd-execute-no-runnable-phase',
+        content: chinese ? '没有包含未完成计划的可执行阶段。请先使用 /gsd-status 查看项目状态。' : 'No phase has unfinished plans to execute. Use /gsd-status to review the project state.',
+        display: true,
+      }, { triggerTurn: false });
+      return;
+    }
+    if (!ctx.hasUI || !ctx.ui?.select) {
+      await pi.sendMessage({ customType: 'gsd-execute-input-error', content: 'Usage: /gsd-execute-phase <phase> [--wave N] [--gaps-only] [--interactive] [--tdd] [--auto]', display: true }, { triggerTurn: false });
+      return;
+    }
+    let selection;
+    try {
+      selection = await ctx.ui.select(chinese ? '执行阶段' : 'Execute a phase', phases);
+    } catch {
+      return;
+    }
+    const label = typeof selection === 'string' ? selection : selection?.label || selection?.value;
+    const phase = phases.find((candidate) => candidate.label === label);
+    if (phase) await launchNativePhaseExecution(ctx, phase.phase);
+  }
+
+  function nativeDiscussPrompt(input) {
+    const tokens = parseCommandLine(input);
+    const [phase, ...options] = tokens;
+    if (!/^\d+$/.test(phase || '') || options.some((option) => !['--all', '--auto', '--chain', '--batch', '--analyze', '--text', '--power', '--assumptions'].includes(option))) return null;
+    const phaseCommand = [phase, ...options].join(' ');
+    return `# OMP native GSD phase discussion
+
+Execute GSD phase discussion \`${phaseCommand}\` end-to-end using the gsd-discuss-phase workflow and its existing scope gates.
+
+OMP interaction contract:
+- Unless \`--text\`, \`--auto\`, or \`--all\` changes the workflow behavior, use the native \`ask\` tool for every workflow AskUserQuestion; never render a numbered list as a substitute.
+- At present_gray_areas, make exactly one native \`ask\` call with \`multi: true\` and the phase-specific gray areas as options. Wait for the structured selection before discussing any area or writing CONTEXT.md.
+- \`--text\` is the only plain-text fallback. It must explicitly display numbered choices and wait for typed input.
+- Preserve GSD's existing context, checkpoint, scope, and no-defaulting rules. Do not auto-select decisions outside the workflow's explicit \`--auto\` or \`--all\` behavior.
+`;
+  }
+
   pi.registerCommand('gsd-execute-phase', {
-    description: 'Execute a GSD phase through OMP native task waves.',
+    description: 'Choose and execute a GSD phase through OMP native task waves.',
     handler: async (input, ctx) => {
-      const prompt = nativeExecutePrompt(input);
+      if (!String(input || '').trim()) return chooseExecutionPhase(ctx);
+      return launchNativePhaseExecution(ctx, input);
+    },
+  });
+
+  pi.registerCommand('gsd-discuss-phase', {
+    description: 'Discuss a GSD phase with native OMP question controls.',
+    handler: async (input, ctx) => {
+      const prompt = nativeDiscussPrompt(input);
       if (!prompt) {
-        await pi.sendMessage({ customType: 'gsd-execute-input-error', content: 'Usage: /gsd-execute-phase <phase> [--wave N] [--gaps-only] [--interactive] [--tdd] [--auto]', display: true }, { triggerTurn: false });
+        await pi.sendMessage({ customType: 'gsd-discuss-input-error', content: 'Usage: /gsd-discuss-phase <phase> [--all] [--auto] [--chain] [--batch] [--analyze] [--text] [--power] [--assumptions]', display: true }, { triggerTurn: false });
         return;
       }
-      nativePhaseCwds.add(path.resolve(ctx.cwd));
-      await pi.sendMessage({ customType: 'gsd-native-execute-phase', content: prompt, display: true }, { triggerTurn: true });
+      await pi.sendMessage({ customType: 'gsd-native-discuss-phase', content: prompt, display: true }, { triggerTurn: true });
     },
   });
 
@@ -1048,7 +1179,7 @@ OMP dispatch contract:
 
   pi.on('session_start', (_event, ctx) => {
     if (!isGsdProject(ctx.cwd)) return;
-    scheduleLanguagePrompt(ctx);
+    scheduleOnboardingPrompt(ctx);
     updateStatus(ctx);
     if (!ctx.hasUI) return;
     const reminder = stateReminder(ctx.cwd);

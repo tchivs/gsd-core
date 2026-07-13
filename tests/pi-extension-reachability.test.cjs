@@ -49,6 +49,7 @@ test('the OMP bridge registers command, tool, and lifecycle hooks', () => {
   assert.equal(typeof pi._recorded.commands['gsd-status'].handler, 'function');
   assert.equal(typeof pi._recorded.commands['gsd-execute-phase'].handler, 'function');
   assert.equal(typeof pi._recorded.commands['gsd-next'].handler, 'function');
+  assert.equal(typeof pi._recorded.commands['gsd-discuss-phase'].handler, 'function');
   assert.equal(typeof pi._recorded.tools.gsd_invoke.execute, 'function');
   assert.equal(typeof pi._recorded.events.session_start, 'function');
   assert.equal(typeof pi._recorded.events.tool_call, 'function');
@@ -87,6 +88,48 @@ test('the native phase command injects a task-based execution contract', async (
   await pi._recorded.commands['gsd-execute-phase'].handler('five', { cwd: path.resolve(__dirname, '..') });
   assert.equal(pi._recorded.messages.at(-1).message.customType, 'gsd-execute-input-error');
   assert.equal(pi._recorded.messages.at(-1).options.triggerTurn, false);
+});
+
+test('the execute command selects an unfinished phase and rejects an empty execution queue', async () => {
+  const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'gsd-omp-phase-picker-'));
+  const phaseDirectory = path.join(cwd, '.planning', 'phases', '02-analysis');
+  fs.mkdirSync(phaseDirectory, { recursive: true });
+  fs.writeFileSync(path.join(cwd, '.planning', 'ROADMAP.md'), '- [ ] **Phase 2: Analysis** - Build auditable reports.\n');
+  fs.writeFileSync(path.join(phaseDirectory, '02-01-PLAN.md'), 'plan');
+  const pi = mockPi();
+  gsdPiExtension(pi);
+  const menus = [];
+  await pi._recorded.commands['gsd-execute-phase'].handler('', { cwd, hasUI: true, ui: {
+    select: async (_title, options) => {
+      menus.push(options);
+      return options[0];
+    },
+  } });
+  assert.deepEqual(menus[0], [{
+    phase: '02',
+    label: 'Phase 2: Analysis',
+    description: '0/1 plans complete',
+  }]);
+  assert.equal(pi._recorded.messages.at(-1).message.customType, 'gsd-native-execute-phase');
+  assert.match(pi._recorded.messages.at(-1).message.content, /Execute GSD phase `02`/);
+
+  fs.writeFileSync(path.join(phaseDirectory, '02-01-SUMMARY.md'), 'summary');
+  await pi._recorded.commands['gsd-execute-phase'].handler('', { cwd, hasUI: true, ui: { select: async () => { throw new Error('must not prompt'); } } });
+  assert.equal(pi._recorded.messages.at(-1).message.customType, 'gsd-execute-no-runnable-phase');
+});
+
+test('the native discussion command requires OMP question controls by default', async () => {
+  const pi = mockPi();
+  gsdPiExtension(pi);
+  await pi._recorded.commands['gsd-discuss-phase'].handler('03', { cwd: path.resolve(__dirname, '..') });
+  assert.equal(pi._recorded.messages.at(-1).message.customType, 'gsd-native-discuss-phase');
+  assert.equal(pi._recorded.messages.at(-1).options.triggerTurn, true);
+  assert.match(pi._recorded.messages.at(-1).message.content, /native `ask` tool/);
+  assert.match(pi._recorded.messages.at(-1).message.content, /multi: true/);
+  assert.match(pi._recorded.messages.at(-1).message.content, /--text.*plain-text fallback/);
+
+  await pi._recorded.commands['gsd-discuss-phase'].handler('three', { cwd: path.resolve(__dirname, '..') });
+  assert.equal(pi._recorded.messages.at(-1).message.customType, 'gsd-discuss-input-error');
 });
 
 test('the native phase command blocks parent-checkout source writes', async () => {
@@ -451,8 +494,8 @@ test('the GSD status counts only summaries matching a phase plan', async () => {
   assert.match(pi._recorded.messages.at(-1).message.content, /Plans: Phase plans 1 \/ 2 complete/);
 
 });
-test('the first interactive GSD session persists a chosen language once', async () => {
-  const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'gsd-omp-language-'));
+test('the first interactive GSD session persists language and interaction preferences once', async () => {
+  const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'gsd-omp-onboarding-'));
   fs.mkdirSync(path.join(cwd, '.planning'));
   const configPath = path.join(cwd, '.planning', 'config.json');
   fs.writeFileSync(configPath, JSON.stringify({ hooks: { workflow_guard: true } }));
@@ -460,14 +503,14 @@ test('the first interactive GSD session persists a chosen language once', async 
 
   const pi = mockPi();
   gsdPiExtension(pi);
-  let promptCount = 0;
+  const selections = ['简体中文', '终端文本式'];
+  const prompts = [];
   const statuses = [];
   const notices = [];
   const ctx = { cwd, hasUI: true, ui: {
-    select: async (_title, options) => {
-      promptCount += 1;
-      assert.deepEqual(options.map(({ label }) => label), ['简体中文', 'English']);
-      return '简体中文';
+    select: async (title, options) => {
+      prompts.push({ title, labels: options.map(({ label }) => label) });
+      return selections.shift();
     },
     notify: (message, level) => notices.push({ message, level }),
     setStatus: (key, text) => statuses.push({ key, text }),
@@ -477,33 +520,66 @@ test('the first interactive GSD session persists a chosen language once', async 
   await pi._recorded.events.session_start({}, ctx);
   await new Promise(setImmediate);
 
-  assert.equal(promptCount, 1);
-  assert.equal(JSON.parse(fs.readFileSync(configPath, 'utf8')).response_language, 'Simplified Chinese');
+  assert.deepEqual(prompts, [
+    { title: 'GSD language / GSD 界面语言', labels: ['简体中文', 'English'] },
+    { title: 'GSD 交互方式', labels: ['OMP 交互式（推荐）', '终端文本式'] },
+  ]);
+  assert.deepEqual(JSON.parse(fs.readFileSync(configPath, 'utf8')), {
+    hooks: { workflow_guard: true },
+    response_language: 'Simplified Chinese',
+    workflow: { text_mode: true },
+  });
   assert.deepEqual(statuses.at(-1), { key: 'gsd', text: 'GSD 01 · 执行中' });
   assert.ok(notices.some(({ message }) => message === 'GSD language set to Simplified Chinese'));
+  assert.ok(notices.some(({ message }) => message === 'GSD interaction set to terminal text'));
 });
 
-test('the language prompt retries after cancellation and tolerates a minimal UI', async () => {
-  const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'gsd-omp-language-retry-'));
+test('the onboarding preserves an explicit interaction preference', async () => {
+  const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'gsd-omp-onboarding-explicit-'));
+  fs.mkdirSync(path.join(cwd, '.planning'));
+  const configPath = path.join(cwd, '.planning', 'config.json');
+  fs.writeFileSync(configPath, JSON.stringify({ workflow: { text_mode: false } }));
+  fs.writeFileSync(path.join(cwd, '.planning', 'STATE.md'), '---\ncurrent_phase: "01"\nstatus: executing\n---\n');
+  const pi = mockPi();
+  gsdPiExtension(pi);
+  const prompts = [];
+  await pi._recorded.events.session_start({}, { cwd, hasUI: true, ui: {
+    select: async (title) => { prompts.push(title); return 'English'; },
+  } });
+  await new Promise(setImmediate);
+
+  assert.deepEqual(prompts, ['GSD language / GSD 界面语言']);
+  assert.deepEqual(JSON.parse(fs.readFileSync(configPath, 'utf8')), {
+    workflow: { text_mode: false },
+    response_language: 'English',
+  });
+});
+
+test('the onboarding retries after cancellation and tolerates a minimal UI', async () => {
+  const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'gsd-omp-onboarding-retry-'));
   fs.mkdirSync(path.join(cwd, '.planning'));
   const configPath = path.join(cwd, '.planning', 'config.json');
   fs.writeFileSync(configPath, JSON.stringify({}));
   fs.writeFileSync(path.join(cwd, '.planning', 'STATE.md'), '---\ncurrent_phase: "01"\nstatus: executing\n---\n');
   const pi = mockPi();
   gsdPiExtension(pi);
-  const selections = [undefined, 'English'];
+  const selections = [undefined, 'English', 'OMP interactive (recommended)'];
   const ctx = { cwd, hasUI: true, ui: { select: async () => selections.shift() } };
   await pi._recorded.events.session_start({}, ctx);
   await new Promise(setImmediate);
   await pi._recorded.events.session_start({}, ctx);
   await new Promise(setImmediate);
-  assert.equal(JSON.parse(fs.readFileSync(configPath, 'utf8')).response_language, 'English');
-  const secondCwd = fs.mkdtempSync(path.join(os.tmpdir(), 'gsd-omp-second-language-'));
+  assert.deepEqual(JSON.parse(fs.readFileSync(configPath, 'utf8')), {
+    response_language: 'English',
+    workflow: { text_mode: false },
+  });
+  const secondCwd = fs.mkdtempSync(path.join(os.tmpdir(), 'gsd-omp-second-onboarding-'));
   fs.mkdirSync(path.join(secondCwd, '.planning'));
   const secondConfigPath = path.join(secondCwd, '.planning', 'config.json');
   fs.writeFileSync(secondConfigPath, JSON.stringify({}));
   fs.writeFileSync(path.join(secondCwd, '.planning', 'STATE.md'), '---\ncurrent_phase: "01"\nstatus: executing\n---\n');
-  await pi._recorded.events.session_start({}, { cwd: secondCwd, hasUI: true, ui: { select: async () => '简体中文' } });
+  const secondSelections = ['简体中文', 'OMP 交互式（推荐）'];
+  await pi._recorded.events.session_start({}, { cwd: secondCwd, hasUI: true, ui: { select: async () => secondSelections.shift() } });
   await new Promise(setImmediate);
   assert.equal(JSON.parse(fs.readFileSync(secondConfigPath, 'utf8')).response_language, 'Simplified Chinese');
   const minimalCwd = fs.mkdtempSync(path.join(os.tmpdir(), 'gsd-omp-minimal-ui-'));
@@ -573,11 +649,12 @@ test('an unresolved language dialog never blocks the session-start handler', asy
   gsdPiExtension(pi);
   let resolveSelection;
   const selection = new Promise((resolve) => { resolveSelection = resolve; });
+  let promptCount = 0;
   let sessionStartResolved = false;
   const sessionStart = Promise.resolve(pi._recorded.events.session_start({}, {
     cwd,
     hasUI: true,
-    ui: { select: () => selection },
+    ui: { select: () => (++promptCount === 1 ? selection : 'OMP interactive (recommended)') },
   })).then(() => { sessionStartResolved = true; });
 
   await new Promise((resolve) => setTimeout(resolve, 20));
@@ -587,7 +664,8 @@ test('an unresolved language dialog never blocks the session-start handler', asy
   await new Promise(setImmediate);
   assert.equal(JSON.parse(fs.readFileSync(configPath, 'utf8')).response_language, 'English');
 });
-test('the GSD console separates blockers and prepares a safe next step', async () => {
+
+test('the GSD next primary action handles blockers and prepares the next step without a confirmation detour', async () => {
   const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'gsd-omp-console-'));
   fs.mkdirSync(path.join(cwd, '.planning'));
   fs.writeFileSync(path.join(cwd, '.planning', 'config.json'), JSON.stringify({ response_language: 'English' }));
@@ -613,9 +691,12 @@ Status: Review 02-03-PLAN.md
   const pi = mockPi();
   gsdPiExtension(pi);
   const editor = [];
+  const menus = [];
   const ctx = { cwd, hasUI: true, ui: {
-    select: async () => ({ label: 'Prepare next step' }),
-    confirm: async () => true,
+    select: async (_title, options) => {
+      menus.push(options.map(({ label }) => label));
+      return options[0];
+    },
     setEditorText: (text) => editor.push(text),
   } };
   await pi._recorded.commands['gsd-next'].handler('', ctx);
@@ -623,6 +704,7 @@ Status: Review 02-03-PLAN.md
   assert.equal(pi._recorded.messages.at(-1).message.customType, 'gsd-next-blocked');
   assert.match(pi._recorded.messages.at(-1).message.content, /⛔ 1 blocker/);
   assert.match(pi._recorded.messages.at(-1).message.content, /⚠ Concern: Testnet access is pending/);
+  assert.deepEqual(menus[0], ['Resolve blockers', 'View project overview', 'Later']);
 
   fs.writeFileSync(path.join(cwd, '.planning', 'STATE.md'), `---
 current_phase: "02"
@@ -639,9 +721,10 @@ Status: Review 02-03-PLAN.md
 `);
   await pi._recorded.commands['gsd-next'].handler('', ctx);
   assert.deepEqual(editor, ['Review 02-03-PLAN.md']);
+  assert.equal(menus[1][0], 'Continue: Review 02-03-PLAN.md');
 });
 
-test('the adapter turns a completed GSD Next Up block into a confirmed new-session handoff', async () => {
+test('the adapter turns a completed GSD Next Up block into a prepared continuation', async () => {
   const pi = mockPi();
   gsdPiExtension(pi);
   const output = `
@@ -675,12 +758,12 @@ test('the adapter turns a completed GSD Next Up block into a confirmed new-sessi
   fs.writeFileSync(path.join(cwd, '.planning', '.omp-next-action.json'), JSON.stringify(action));
 
   const widgets = [];
-  let sessionOptions;
+  const editor = [];
   const ctx = { cwd, hasUI: true, ui: {
-    select: async () => ({ label: 'Start new GSD session' }),
-    confirm: async () => true,
+    select: async (_title, options) => options[0],
+    setEditorText: (text) => editor.push(text),
     setWidget: (key, lines, options) => widgets.push({ key, lines, options }),
-  }, waitForIdle: async () => {}, sessionManager: { getSessionFile: () => '/tmp/old.jsonl' }, newSession: async (options) => { sessionOptions = options; } };
+  } };
   await pi._recorded.events.session_start({}, ctx);
   assert.deepEqual(widgets[0].lines.map(stripAnsi), [
     'GSD · Next Up',
@@ -689,11 +772,7 @@ test('the adapter turns a completed GSD Next Up block into a confirmed new-sessi
   ]);
 
   await pi._recorded.commands['gsd-next'].handler('', ctx);
-  assert.equal(sessionOptions.parentSession, '/tmp/old.jsonl');
-  const setupMessages = [];
-  await sessionOptions.setup({ appendMessage: (message) => setupMessages.push(message) });
-  assert.match(setupMessages[0].content[0].text, /\/gsd:plan-phase 01 --gaps/);
-  assert.match(setupMessages[0].content[0].text, /do not execute it automatically/);
+  assert.deepEqual(editor, ['/new\n/gsd:plan-phase 01 --gaps']);
 });
 
 
