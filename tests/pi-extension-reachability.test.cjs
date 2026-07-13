@@ -25,13 +25,18 @@ function mockZod() {
 }
 
 function mockPi() {
-  const recorded = { commands: {}, tools: {}, events: {}, messages: [] };
+  const recorded = { commands: {}, tools: {}, events: {}, messages: [], sessionName: undefined, sessionNameUpdates: [] };
   return {
     zod: mockZod(),
     registerCommand(name, definition) { recorded.commands[name] = definition; },
     registerTool(definition) { recorded.tools[definition.name] = definition; },
     on(event, handler) { recorded.events[event] = handler; },
     async sendMessage(message, options) { recorded.messages.push({ message, options }); },
+    getSessionName() { return recorded.sessionName; },
+    async setSessionName(name) {
+      recorded.sessionName = name;
+      recorded.sessionNameUpdates.push(name);
+    },
     _recorded: recorded,
   };
 }
@@ -108,6 +113,35 @@ test('the native phase command injects a task-based execution contract', async (
   assert.match(pi._recorded.messages.at(-1).message.content, /`05 --wave 2 --cross-ai --no-transition`/);
   await pi._recorded.commands['gsd-execute-phase'].handler('05 --wave 0', { cwd: path.resolve(__dirname, '..') });
   assert.equal(pi._recorded.messages.at(-1).message.customType, 'gsd-execute-input-error');
+});
+
+test('native phase entry points name only unnamed GSD sessions', async () => {
+  const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'gsd-omp-session-label-'));
+  try {
+    fs.mkdirSync(path.join(cwd, '.planning'));
+    fs.writeFileSync(path.join(cwd, '.planning', 'STATE.md'), '---\ncurrent_phase: "01"\nstatus: executing\n---\n');
+    const pi = mockPi();
+    gsdPiExtension(pi);
+    const ctx = { cwd };
+    for (const [command, input, expected] of [
+      ['gsd-execute-phase', '05 --wave 2', 'GSD · Phase 05 · Execute'],
+      ['gsd-discuss-phase', '03', 'GSD · Phase 03 · Discuss'],
+      ['gsd-plan-phase', '02 --auto', 'GSD · Phase 02 · Plan'],
+      ['gsd-verify-work', '04', 'GSD · Phase 04 · Verify'],
+    ]) {
+      pi._recorded.sessionName = undefined;
+      await pi._recorded.commands[command].handler(input, ctx);
+      assert.equal(pi._recorded.sessionName, expected);
+    }
+
+    pi._recorded.sessionName = 'User-defined session';
+    const updates = pi._recorded.sessionNameUpdates.length;
+    await pi._recorded.commands['gsd-execute-phase'].handler('05', ctx);
+    assert.equal(pi._recorded.sessionName, 'User-defined session');
+    assert.equal(pi._recorded.sessionNameUpdates.length, updates);
+  } finally {
+    cleanup(cwd);
+  }
 });
 
 test('native phase commands complete only the current command phase argument', () => {

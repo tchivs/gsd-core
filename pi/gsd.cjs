@@ -1106,12 +1106,25 @@ OMP dispatch contract:
 `;
   }
 
+  async function nameNativePhaseSession(ctx, phase, activity) {
+    if (!isGsdProject(ctx.cwd) || pi.getSessionName()?.trim()) return;
+    const activityLabel = usesChinese(ctx.cwd)
+      ? { discuss: '讨论', plan: '规划', execute: '执行', verify: '验证' }[activity]
+      : { discuss: 'Discuss', plan: 'Plan', execute: 'Execute', verify: 'Verify' }[activity];
+    try {
+      await pi.setSessionName(`GSD · Phase ${phase} · ${activityLabel}`);
+    } catch {
+      // Session naming is an enhancement; it must not interrupt a workflow.
+    }
+  }
+
   async function launchNativePhaseExecution(ctx, input) {
     const prompt = nativeExecutePrompt(input);
     if (!prompt) {
       await pi.sendMessage({ customType: 'gsd-execute-input-error', content: 'Usage: /gsd-execute-phase <phase> [--wave N] [--gaps-only] [--interactive] [--tdd] [--auto] [--cross-ai] [--no-cross-ai] [--no-transition]', display: true }, { triggerTurn: false });
       return;
     }
+    await nameNativePhaseSession(ctx, parseCommandLine(input)[0], 'execute');
     nativePhaseCwds.add(path.resolve(ctx.cwd));
     await pi.sendMessage({ customType: 'gsd-native-execute-phase', content: prompt, display: true }, { triggerTurn: true });
   }
@@ -1200,6 +1213,7 @@ OMP interaction contract:
       await pi.sendMessage({ customType: 'gsd-plan-input-error', content: 'Usage: /gsd-plan-phase <phase> [--auto] [--research] [--skip-research] [--research-phase N] [--view] [--gaps] [--skip-verify] [--skip-ui] [--prd FILE] [--ingest PATH] [--ingest-format auto|nygard|madr|narrative] [--reviews] [--text] [--bounce] [--skip-bounce] [--chunked] [--granularity coarse|standard|fine] [--tdd] [--mvp] [--force]', display: true }, { triggerTurn: false });
       return;
     }
+    await nameNativePhaseSession(ctx, parseCommandLine(input)[0], 'plan');
     await pi.sendMessage({ customType: 'gsd-native-plan-phase', content: prompt, display: true }, { triggerTurn: true });
   }
 
@@ -1252,6 +1266,7 @@ OMP verification contract:
       await pi.sendMessage({ customType: 'gsd-verify-input-error', content: 'Usage: /gsd-verify-work <phase> [--ws NAME]', display: true }, { triggerTurn: false });
       return;
     }
+    await nameNativePhaseSession(ctx, parseCommandLine(input)[0], 'verify');
     await pi.sendMessage({ customType: 'gsd-native-verify-work', content: prompt, display: true }, { triggerTurn: true });
   }
 
@@ -1299,6 +1314,7 @@ OMP verification contract:
         await pi.sendMessage({ customType: 'gsd-discuss-input-error', content: 'Usage: /gsd-discuss-phase <phase> [--all] [--auto] [--chain] [--batch] [--analyze] [--text] [--power] [--assumptions]', display: true }, { triggerTurn: false });
         return;
       }
+      await nameNativePhaseSession(ctx, parseCommandLine(input)[0], 'discuss');
       await pi.sendMessage({ customType: 'gsd-native-discuss-phase', content: prompt, display: true }, { triggerTurn: true });
     },
   });
