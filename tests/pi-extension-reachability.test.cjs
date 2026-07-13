@@ -173,6 +173,11 @@ test('the plan command selects an unplanned phase and preserves planning workflo
 
   await pi._recorded.commands['gsd-plan-phase'].handler('03 --ingest-format yaml', { cwd });
   assert.equal(pi._recorded.messages.at(-1).message.customType, 'gsd-plan-input-error');
+
+  await pi._recorded.commands['gsd-plan-phase'].handler('03 --prd --auto', { cwd });
+  assert.equal(pi._recorded.messages.at(-1).message.customType, 'gsd-plan-input-error');
+  await pi._recorded.commands['gsd-plan-phase'].handler('03 --ingest --reviews', { cwd });
+  assert.equal(pi._recorded.messages.at(-1).message.customType, 'gsd-plan-input-error');
 });
 
 test('the verification command selects completed phases and resumes incomplete UAT', async () => {
@@ -219,6 +224,9 @@ test('the verification command selects completed phases and resumes incomplete U
   assert.equal(pi._recorded.messages.at(-1).message.customType, 'gsd-verify-no-ready-phase');
 
   await pi._recorded.commands['gsd-verify-work'].handler('02 --ws', { cwd });
+  assert.equal(pi._recorded.messages.at(-1).message.customType, 'gsd-verify-input-error');
+
+  await pi._recorded.commands['gsd-verify-work'].handler('02 --ws --auto', { cwd });
   assert.equal(pi._recorded.messages.at(-1).message.customType, 'gsd-verify-input-error');
 });
 

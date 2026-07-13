@@ -1155,8 +1155,8 @@ OMP interaction contract:
     if (!/^\d+$/.test(phase || '')) return null;
     const valueOptions = new Map([
       ['--research-phase', (value) => /^\d+$/.test(value || '')],
-      ['--prd', (value) => Boolean(value)],
-      ['--ingest', (value) => Boolean(value)],
+      ['--prd', (value) => Boolean(value) && !value.startsWith('--')],
+      ['--ingest', (value) => Boolean(value) && !value.startsWith('--')],
       ['--ingest-format', (value) => ['auto', 'nygard', 'madr', 'narrative'].includes(value)],
     ]);
     const flagOptions = new Set(['--auto', '--research', '--skip-research', '--view', '--gaps', '--skip-verify', '--reviews', '--text', '--tdd', '--mvp']);
@@ -1221,7 +1221,7 @@ OMP interaction contract:
   function nativeVerifyPrompt(input) {
     const tokens = parseCommandLine(input);
     const [phase, ...options] = tokens;
-    if (!/^\d+$/.test(phase || '') || (options.length && (options.length !== 2 || options[0] !== '--ws' || !options[1]))) return null;
+    if (!/^\d+$/.test(phase || '') || (options.length && (options.length !== 2 || options[0] !== '--ws' || !options[1] || options[1].startsWith('--')))) return null;
     const phaseCommand = [phase, ...options].join(' ');
     return `# OMP native GSD phase verification
 
