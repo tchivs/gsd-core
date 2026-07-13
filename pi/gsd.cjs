@@ -239,13 +239,14 @@ module.exports = function gsdPiExtension(pi) {
     return taskIds;
   }
 
-  function trackGsdTaskRequest(event, cwd) {
-    const input = event?.input;
-    if (event?.toolName !== 'task' || !input || typeof input.agent !== 'string' || !input.agent.startsWith('gsd-')) return;
-    const taskIds = taskIdsFor(cwd);
-    const tasks = Array.isArray(input.tasks) ? input.tasks : [input];
-    for (const task of tasks) {
-      if (typeof task?.id === 'string' && task.id) taskIds.add(task.id);
+  function trackGsdTaskProgress(event, cwd) {
+    const progress = event?.details?.progress;
+    if (!Array.isArray(progress)) return;
+    let taskIds;
+    for (const task of progress) {
+      if (typeof task?.agent !== 'string' || !task.agent.startsWith('gsd-') || typeof task.id !== 'string' || !task.id) continue;
+      taskIds ||= taskIdsFor(cwd);
+      taskIds.add(task.id);
     }
   }
 
@@ -264,9 +265,6 @@ module.exports = function gsdPiExtension(pi) {
     return changed;
   }
 
-  function activeGsdTaskCount(cwd) {
-    return activeGsdTaskIds.get(path.resolve(cwd))?.size || 0;
-  }
 
   function nativeTaskWaitBlock(event, cwd) {
     const input = event?.input || {};
@@ -1067,7 +1065,7 @@ Execute GSD phase \`${phaseCommand}\` end-to-end using the execute-phase workflo
 OMP dispatch contract:
 - This OMP contract takes precedence over runtime-specific \`Agent(...)\` or \`isolation="worktree"\` directions in execute-phase: on OMP, native \`task\` with \`isolated: true\` is the only valid isolated executor dispatch.
 - Use native \`task\` for every non-interactive executor dispatch. One plan is one task; independent plans in a wave are one task batch. Never use \`irc wait\` for task completion: IRC is coordination-only. Use \`job poll\` for the spawned task ids and consume the native task result before dispatching the next wave.
-- Assign each executor a stable id \`Phase${phase}Plan{PLAN}Executor\`, an operator-facing description, the \`gsd-executor\` role, the complete plan assignment, and the relevant GSD context paths.
+- For a wave, call native \`task\` with its batch shape: a shared \`context\` plus \`tasks\`, where each executor item has \`name: "Phase${phase}Plan{PLAN}Executor"\`, \`agent: "gsd-executor"\`, the complete plan assignment in \`task\`, and \`isolated: true\`. Use \`name\`, not an invented \`id\` or \`description\` field.
 - Every executor that writes repository files MUST request \`isolated: true\`. If isolated execution is unavailable, stop and report the blocked plan; never fall back to main-checkout writes or manual \`git worktree\` commands.
 - \`--interactive\` is the only sequential inline mode. All other executor work uses native task dispatch.
 - Native task completion is not a completion gate. Reconcile its \`[gsd-task-result]\` line, then require the existing SUMMARY.md, commit, merge, post-wave verification, and STATE.md updates before marking the plan complete.
@@ -1389,6 +1387,7 @@ OMP verification contract:
   pi.on('tool_result', async (event, ctx) => {
     if (!isGsdProject(ctx.cwd)) return;
     releaseSettledGsdTasks(event, ctx.cwd);
+    trackGsdTaskProgress(event, ctx.cwd);
     const output = (event.content || [])
       .filter((chunk) => chunk.type === 'text')
       .map((chunk) => chunk.text)
@@ -1403,7 +1402,6 @@ OMP verification contract:
   });
 
   pi.on('tool_call', async (event, ctx) => {
-    trackGsdTaskRequest(event, ctx.cwd);
     const taskWaitBlock = nativeTaskWaitBlock(event, ctx.cwd);
     if (taskWaitBlock) return { block: true, reason: taskWaitBlock };
     const nativePhaseBlock = nativePhaseWriteBlock(event, ctx.cwd);

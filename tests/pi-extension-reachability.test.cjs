@@ -80,6 +80,9 @@ test('the native phase command injects a task-based execution contract', async (
   assert.match(pi._recorded.messages[0].message.content, /Use native `task`/);
   assert.match(pi._recorded.messages[0].message.content, /takes precedence over runtime-specific `Agent\(\.\.\.\)` or `isolation="worktree"` directions/);
   assert.match(pi._recorded.messages[0].message.content, /isolated: true/);
+  assert.match(pi._recorded.messages[0].message.content, /batch shape: a shared `context` plus `tasks`/);
+  assert.match(pi._recorded.messages[0].message.content, /name: "Phase05Plan\{PLAN\}Executor"/);
+  assert.match(pi._recorded.messages[0].message.content, /not an invented `id` or `description` field/);
   assert.match(pi._recorded.messages[0].message.content, /never fall back to main-checkout writes or manual `git worktree` commands/i);
   assert.match(pi._recorded.messages[0].message.content, /uncommitted handoff/);
   assert.match(pi._recorded.messages[0].message.content, /create the plan's required commit in the parent checkout/);
@@ -290,7 +293,7 @@ test('the native phase command blocks parent-checkout source writes', async () =
   }, { cwd }), undefined);
 });
 
-test('the OMP bridge blocks IRC completion waits for tracked GSD task jobs', async () => {
+test('the OMP bridge blocks IRC waits for native GSD task runtime IDs', async () => {
   const pi = mockPi();
   gsdPiExtension(pi);
   const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'gsd-omp-task-guard-'));
@@ -298,14 +301,15 @@ test('the OMP bridge blocks IRC completion waits for tracked GSD task jobs', asy
   fs.writeFileSync(path.join(cwd, '.planning', 'STATE.md'), '---\ncurrent_phase: "01"\nstatus: executing\n---\n');
   const ctx = { cwd };
 
-  await pi._recorded.events.tool_call({
+  await pi._recorded.events.tool_result({
     toolName: 'task',
-    input: { agent: 'gsd-code-fixer', tasks: [{ id: 'FixPhase02ReviewFindings' }] },
+    content: [],
+    details: { progress: [{ id: 'FixPhase02ReviewFindings-2', agent: 'gsd-code-fixer' }] },
   }, ctx);
 
   const blocked = await pi._recorded.events.tool_call({
     toolName: 'irc',
-    input: { op: 'wait', from: 'FixPhase02ReviewFindings' },
+    input: { op: 'wait', from: 'FixPhase02ReviewFindings-2' },
   }, ctx);
   assert.equal(blocked.block, true);
   assert.match(blocked.reason, /Do not wait for task completion through IRC/);
@@ -314,11 +318,11 @@ test('the OMP bridge blocks IRC completion waits for tracked GSD task jobs', asy
   await pi._recorded.events.tool_result({
     toolName: 'job',
     content: [],
-    details: { jobs: [{ id: 'FixPhase02ReviewFindings', status: 'completed' }] },
+    details: { jobs: [{ id: 'FixPhase02ReviewFindings-2', status: 'completed' }] },
   }, ctx);
   assert.equal(await pi._recorded.events.tool_call({
     toolName: 'irc',
-    input: { op: 'wait', from: 'FixPhase02ReviewFindings' },
+    input: { op: 'wait', from: 'FixPhase02ReviewFindings-2' },
   }, ctx), undefined);
 });
 
@@ -333,14 +337,15 @@ test('the OMP task wait guard is scoped to the GSD project', async () => {
   gsdPiExtension(pi);
   const task = {
     toolName: 'task',
-    input: { agent: 'gsd-executor', tasks: [{ id: 'Phase01Plan0101Executor' }] },
+    content: [],
+    details: { progress: [{ id: 'Phase01Plan0101Executor', agent: 'gsd-executor' }] },
   };
   const wait = {
     toolName: 'irc',
     input: { op: 'wait', from: 'Phase01Plan0101Executor' },
   };
 
-  await pi._recorded.events.tool_call(task, { cwd: firstCwd });
+  await pi._recorded.events.tool_result(task, { cwd: firstCwd });
   assert.equal((await pi._recorded.events.tool_call(wait, { cwd: firstCwd })).block, true);
   assert.equal(await pi._recorded.events.tool_call(wait, { cwd: secondCwd }), undefined);
 });
