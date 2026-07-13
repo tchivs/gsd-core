@@ -136,6 +136,10 @@ test('the native discussion command requires OMP question controls by default', 
   assert.match(pi._recorded.messages.at(-1).message.content, /multi: true/);
   assert.match(pi._recorded.messages.at(-1).message.content, /--text.*plain-text fallback/);
 
+  await pi._recorded.commands['gsd-discuss-phase'].handler('03 --assumptions', { cwd: path.resolve(__dirname, '..') });
+  assert.equal(pi._recorded.messages.at(-1).message.customType, 'gsd-native-discuss-phase');
+  assert.match(pi._recorded.messages.at(-1).message.content, /`03 --assumptions`/);
+
   await pi._recorded.commands['gsd-discuss-phase'].handler('three', { cwd: path.resolve(__dirname, '..') });
   assert.equal(pi._recorded.messages.at(-1).message.customType, 'gsd-discuss-input-error');
 });
