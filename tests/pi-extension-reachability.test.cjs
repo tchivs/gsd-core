@@ -414,6 +414,21 @@ test('the native phase command blocks parent-checkout source writes', async () =
   }, { cwd }), undefined);
 });
 
+test('a failed native phase launch releases the parent-checkout write guard', async () => {
+  const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'gsd-omp-native-launch-failure-'));
+  fs.mkdirSync(path.join(cwd, '.planning'));
+  fs.writeFileSync(path.join(cwd, '.planning', 'STATE.md'), '---\ncurrent_phase: "01"\nstatus: executing\n---\n');
+  const pi = mockPi();
+  pi.sendMessage = async () => { throw new Error('native dispatch unavailable'); };
+  gsdPiExtension(pi);
+
+  await assert.rejects(pi._recorded.commands['gsd-execute-phase'].handler('01', { cwd }), /native dispatch unavailable/);
+  assert.equal(await pi._recorded.events.tool_call({
+    toolName: 'write',
+    input: { path: 'src/proof.ts' },
+  }, { cwd }), undefined);
+});
+
 test('session shutdown releases native GSD task and phase guards', async () => {
   const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'gsd-omp-session-shutdown-'));
   try {

@@ -1164,8 +1164,14 @@ OMP dispatch contract:
       return;
     }
     await nameNativePhaseSession(ctx, parseCommandLine(input)[0], 'execute');
-    nativePhaseCwds.add(path.resolve(ctx.cwd));
-    await pi.sendMessage({ customType: 'gsd-native-execute-phase', content: prompt, display: true }, { triggerTurn: true });
+    const projectPath = path.resolve(ctx.cwd);
+    nativePhaseCwds.add(projectPath);
+    try {
+      await pi.sendMessage({ customType: 'gsd-native-execute-phase', content: prompt, display: true }, { triggerTurn: true });
+    } catch (error) {
+      nativePhaseCwds.delete(projectPath);
+      throw error;
+    }
   }
 
   async function chooseExecutionPhase(ctx) {
