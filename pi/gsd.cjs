@@ -1152,14 +1152,15 @@ OMP interaction contract:
   function nativePlanPrompt(input) {
     const tokens = parseCommandLine(input);
     const [phase, ...options] = tokens;
-    if (!/^\d+$/.test(phase || '')) return null;
+    if (!/^\d+(?:\.\d+)?$/.test(phase || '')) return null;
     const valueOptions = new Map([
-      ['--research-phase', (value) => /^\d+$/.test(value || '')],
+      ['--research-phase', (value) => /^\d+(?:\.\d+)?$/.test(value || '')],
       ['--prd', (value) => Boolean(value) && !value.startsWith('--')],
       ['--ingest', (value) => Boolean(value) && !value.startsWith('--')],
       ['--ingest-format', (value) => ['auto', 'nygard', 'madr', 'narrative'].includes(value)],
+      ['--granularity', (value) => ['coarse', 'standard', 'fine'].includes(value)],
     ]);
-    const flagOptions = new Set(['--auto', '--research', '--skip-research', '--view', '--gaps', '--skip-verify', '--reviews', '--text', '--tdd', '--mvp']);
+    const flagOptions = new Set(['--auto', '--research', '--skip-research', '--view', '--gaps', '--skip-verify', '--skip-ui', '--reviews', '--text', '--bounce', '--skip-bounce', '--chunked', '--tdd', '--mvp', '--force']);
     for (let index = 0; index < options.length; index += 1) {
       const option = options[index];
       if (valueOptions.has(option)) {
@@ -1186,7 +1187,7 @@ OMP interaction contract:
   async function launchNativePhasePlanning(ctx, input) {
     const prompt = nativePlanPrompt(input);
     if (!prompt) {
-      await pi.sendMessage({ customType: 'gsd-plan-input-error', content: 'Usage: /gsd-plan-phase <phase> [--auto] [--research] [--skip-research] [--research-phase N] [--view] [--gaps] [--skip-verify] [--prd FILE] [--ingest PATH] [--ingest-format auto|nygard|madr|narrative] [--reviews] [--text] [--tdd] [--mvp]', display: true }, { triggerTurn: false });
+      await pi.sendMessage({ customType: 'gsd-plan-input-error', content: 'Usage: /gsd-plan-phase <phase> [--auto] [--research] [--skip-research] [--research-phase N] [--view] [--gaps] [--skip-verify] [--skip-ui] [--prd FILE] [--ingest PATH] [--ingest-format auto|nygard|madr|narrative] [--reviews] [--text] [--bounce] [--skip-bounce] [--chunked] [--granularity coarse|standard|fine] [--tdd] [--mvp] [--force]', display: true }, { triggerTurn: false });
       return;
     }
     await pi.sendMessage({ customType: 'gsd-native-plan-phase', content: prompt, display: true }, { triggerTurn: true });
@@ -1204,7 +1205,7 @@ OMP interaction contract:
       return;
     }
     if (!ctx.hasUI || !ctx.ui?.select) {
-      await pi.sendMessage({ customType: 'gsd-plan-input-error', content: 'Usage: /gsd-plan-phase <phase> [--auto] [--research] [--skip-research] [--research-phase N] [--view] [--gaps] [--skip-verify] [--prd FILE] [--ingest PATH] [--ingest-format auto|nygard|madr|narrative] [--reviews] [--text] [--tdd] [--mvp]', display: true }, { triggerTurn: false });
+      await pi.sendMessage({ customType: 'gsd-plan-input-error', content: 'Usage: /gsd-plan-phase <phase> [--auto] [--research] [--skip-research] [--research-phase N] [--view] [--gaps] [--skip-verify] [--skip-ui] [--prd FILE] [--ingest PATH] [--ingest-format auto|nygard|madr|narrative] [--reviews] [--text] [--bounce] [--skip-bounce] [--chunked] [--granularity coarse|standard|fine] [--tdd] [--mvp] [--force]', display: true }, { triggerTurn: false });
       return;
     }
     let selection;

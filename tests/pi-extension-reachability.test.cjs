@@ -180,6 +180,12 @@ test('the plan command selects an unplanned phase and preserves planning workflo
   await pi._recorded.commands['gsd-plan-phase'].handler('03 --ingest-format yaml', { cwd });
   assert.equal(pi._recorded.messages.at(-1).message.customType, 'gsd-plan-input-error');
 
+  await pi._recorded.commands['gsd-plan-phase'].handler('2.1 --skip-ui --bounce --chunked --granularity fine --force', { cwd });
+  assert.equal(pi._recorded.messages.at(-1).message.customType, 'gsd-native-plan-phase');
+  assert.match(pi._recorded.messages.at(-1).message.content, /`2\.1 --skip-ui --bounce --chunked --granularity fine --force`/);
+  await pi._recorded.commands['gsd-plan-phase'].handler('2.1 --granularity narrow', { cwd });
+  assert.equal(pi._recorded.messages.at(-1).message.customType, 'gsd-plan-input-error');
+
   await pi._recorded.commands['gsd-plan-phase'].handler('03 --prd --auto', { cwd });
   assert.equal(pi._recorded.messages.at(-1).message.customType, 'gsd-plan-input-error');
   await pi._recorded.commands['gsd-plan-phase'].handler('03 --ingest --reviews', { cwd });
