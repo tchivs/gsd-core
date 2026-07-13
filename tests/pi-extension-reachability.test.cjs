@@ -6,13 +6,13 @@ const path = require('node:path');
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const { spawnSync } = require('node:child_process');
-const { cleanup } = require('./helpers.cjs');
+const { createTempDir, cleanup } = require('./helpers.cjs');
 
 
 const gsdPiExtension = require('../pi/gsd.cjs');
-const { _internals } = require('../pi/gsd.cjs');
-const { createTempDir, cleanup } = require('./helpers.cjs');
+const { _internals } = gsdPiExtension;
 const { installOmpSkills } = require('../pi/install-omp-skills.cjs');
+const { version: packageVersion } = require('../package.json');
 
 function mockZod() {
   const chain = () => ({ default: () => chain(), optional: () => chain() });
@@ -309,7 +309,7 @@ test('the generic installer creates a self-contained OMP runtime', () => {
     assert.deepEqual(extensionEventSurfaceFor('pi'), ['session_start', 'turn_end', 'tool_call', 'tool_result']);
     const { loadUpdateContext } = require('../gsd-core/bin/lib/update-context.cjs');
     assert.deepEqual(loadUpdateContext({ env: { PI_CODING_AGENT_DIR: destination }, preferredConfigDir: destination, preferredRuntime: 'omp' }), {
-      installedVersion: '1.7.0-rc.5', scope: 'GLOBAL', runtime: 'omp', gsdDir: destination,
+      installedVersion: packageVersion, scope: 'GLOBAL', runtime: 'omp', gsdDir: destination,
     });
     const manifest = JSON.parse(fs.readFileSync(path.join(destination, 'gsd-file-manifest.json'), 'utf8'));
     assert.ok(manifest.files['extensions/gsd-omp.ts']);
