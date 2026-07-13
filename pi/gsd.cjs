@@ -775,6 +775,17 @@ module.exports = function gsdPiExtension(pi) {
     return { completed, total, scope: artifactProgress ? 'phase' : 'project', bar: `${'█'.repeat(filled)}${'░'.repeat(width - filled)}` };
   }
 
+  function localizedPlanProgress(progressValue, cwd, compact = false) {
+    const chinese = usesChinese(cwd);
+    const scope = progressValue.scope === 'phase'
+      ? chinese ? '阶段计划' : 'Phase plans'
+      : chinese ? '项目计划' : 'Plans';
+    const counts = compact
+      ? `${progressValue.completed}/${progressValue.total}`
+      : `${progressValue.completed} / ${progressValue.total}`;
+    return chinese ? `${scope} ${counts} 已完成` : `${scope} ${counts} complete`;
+  }
+
   function checkpointStatus(cwd, state) {
     const checkpoint = readCheckpoint(cwd);
     if (state.status !== 'executing' || !checkpoint || Number(String(state.phase).replace(/^0+/, '') || 0) !== checkpoint.phase) return null;
@@ -789,12 +800,8 @@ module.exports = function gsdPiExtension(pi) {
     const checkpoint = checkpointStatus(cwd, state);
     if (checkpoint) return `${checkpoint}${riskIndicator(state)}`;
     const progressValue = planProgress(cwd, state);
-    const progress = progressValue
-      ? progressValue.scope === 'phase'
-        ? usesChinese(cwd) ? ` · 阶段计划 ${progressValue.completed}/${progressValue.total}` : ` · Phase plans ${progressValue.completed}/${progressValue.total}`
-        : usesChinese(cwd) ? ` · 项目计划 ${progressValue.completed}/${progressValue.total}` : ` · Plans ${progressValue.completed}/${progressValue.total}`
-      : '';
-    return `GSD ${state.phase}${progress} · ${localizedStatus(state.status, cwd)}${riskIndicator(state)}`;
+    const progress = progressValue ? ` · ${localizedPlanProgress(progressValue, cwd, true)}` : '';
+    return `GSD ${state.phase} · ${localizedStatus(state.status, cwd)}${progress}${riskIndicator(state)}`;
   }
 
   function localizedStatusSummary(cwd) {
@@ -804,9 +811,7 @@ module.exports = function gsdPiExtension(pi) {
     if (state.unreadable) return chinese ? 'GSD 状态文件无法解析。' : 'GSD state file could not be parsed.';
     const progressValue = planProgress(cwd, state);
     const progressText = progressValue
-      ? chinese
-        ? `${progressValue.scope === 'phase' ? '阶段计划' : '项目计划'} ${progressValue.completed} / ${progressValue.total} 已完成`
-        : `${progressValue.scope === 'phase' ? 'Phase plans' : 'Plans'} ${progressValue.completed} / ${progressValue.total} complete`
+      ? localizedPlanProgress(progressValue, cwd)
       : chinese ? '暂无计划进度' : 'No plan progress available';
     return chinese
       ? [

@@ -547,7 +547,7 @@ Status: Ready for 01-05-PLAN.md
   } };
   await pi._recorded.events.session_start({}, ctx);
   assert.match(notices[0].message, /Project State Reminder/);
-  assert.deepEqual(statuses[0], { key: 'gsd', text: 'GSD 01 · 项目计划 3/5 · 执行中 ⚠2' });
+  assert.deepEqual(statuses[0], { key: 'gsd', text: 'GSD 01 · 执行中 · 项目计划 3/5 已完成 ⚠2' });
   assert.deepEqual({
     ...widgets[0],
     lines: widgets[0].lines.map(stripAnsi),
@@ -567,7 +567,7 @@ Status: Ready for 01-05-PLAN.md
   fs.writeFileSync(configPath, JSON.stringify({ response_language: 'English', hooks: { workflow_guard: true } }));
   fs.writeFileSync(path.join(cwd, '.planning', 'STATE.md'), state(4));
   await pi._recorded.events.turn_end({}, ctx);
-  assert.deepEqual(statuses.at(-1), { key: 'gsd', text: 'GSD 01 · Plans 4/5 · Executing ⚠2' });
+  assert.deepEqual(statuses.at(-1), { key: 'gsd', text: 'GSD 01 · Executing · Plans 4/5 complete ⚠2' });
 
   await pi._recorded.commands['gsd-status'].handler('', { cwd });
   const englishSummary = pi._recorded.messages.at(-1);
@@ -590,7 +590,7 @@ test('the GSD console localizes verification-ready state and instruction', async
     setWidget: (key, lines, options) => widgets.push({ key, lines, options }),
   } };
   await pi._recorded.events.session_start({}, ctx);
-  assert.deepEqual(statuses, [{ key: 'gsd', text: 'GSD 01 · 项目计划 4/5 · 待验证' }]);
+  assert.deepEqual(statuses, [{ key: 'gsd', text: 'GSD 01 · 待验证 · 项目计划 4/5 已完成' }]);
   assert.deepEqual(widgets[0].lines, []);
 });
 
@@ -609,7 +609,7 @@ test('the GSD status line prefers exact phase artifacts over roadmap totals', as
   fs.writeFileSync(path.join(cwd, '.planning', 'STATE.md'), '---\ncurrent_phase: "01"\nstatus: ready_for_verification\nprogress:\n total_plans: 5\n completed_plans: 4\n---\n');
   const statuses = [];
   await pi._recorded.events.session_start({}, { cwd, hasUI: true, ui: { setStatus: (key, text) => statuses.push({ key, text }) } });
-  assert.deepEqual(statuses, [{ key: 'gsd', text: 'GSD 01 · 阶段计划 4/4 · 待验证' }]);
+  assert.deepEqual(statuses, [{ key: 'gsd', text: 'GSD 01 · 待验证 · 阶段计划 4/4 已完成' }]);
   await pi._recorded.commands['gsd-status'].handler('', { cwd });
   assert.match(pi._recorded.messages.at(-1).message.content, /计划：阶段计划 4 \/ 4 已完成/);
 });
@@ -627,7 +627,7 @@ test('the GSD status counts only summaries matching a phase plan', async () => {
   fs.writeFileSync(path.join(cwd, '.planning', 'STATE.md'), '---\ncurrent_phase: "01"\nstatus: executing\nprogress:\n total_plans: 2\n completed_plans: 2\n---\n');
   const statuses = [];
   await pi._recorded.events.session_start({}, { cwd, hasUI: true, ui: { setStatus: (key, text) => statuses.push({ key, text }) } });
-  assert.deepEqual(statuses, [{ key: 'gsd', text: 'GSD 01 · Phase plans 1/2 · Executing' }]);
+  assert.deepEqual(statuses, [{ key: 'gsd', text: 'GSD 01 · Executing · Phase plans 1/2 complete' }]);
   await pi._recorded.commands['gsd-status'].handler('', { cwd });
   assert.match(pi._recorded.messages.at(-1).message.content, /Plans: Phase plans 1 \/ 2 complete/);
 
