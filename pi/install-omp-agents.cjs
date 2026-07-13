@@ -17,12 +17,13 @@ const ompOrchestration = `
 
 This runtime's native task tool owns subagents, jobs, progress, cancellation, artifacts, and isolation. When a GSD workflow asks to spawn an Agent(...), dispatch a native task instead; never emulate a subagent with shell backgrounding or a hand-written worktree.
 
-- Use native task's real schema: set a stable \`name\` (for example \`Phase02GapPlanner\`), an \`agent\`, and the operator-facing assignment in \`task\`. For a parallel wave, supply shared \`context\` and \`tasks[]\`; never invent \`id\` or \`description\` fields.
-- Run independent research, planning, verification, and review work as native task jobs. The OMP Job and Subagents panels are the live progress source. Never use \`irc wait\` for task completion: IRC is only for quick coordination. The parent MUST use \`job poll\` for the spawned native runtime IDs, and each task MUST terminal-yield immediately after its final verification so the native result is delivered.
+- Use native task's real schema: set the top-level \`agent\`, shared \`context\`, and \`tasks[]\`; every task item needs a stable \`id\` (for example \`Phase02GapPlanner\`), \`role\`, \`description\`, and operator-facing \`assignment\`. For executor tasks add \`isolated: true\`; never invent \`name\` or per-item \`agent\`/\`task\` fields.
+- Run independent research, planning, verification, and review work as native task jobs. The OMP Job and Subagents panels are the live progress source. Never use \`irc wait\` for task completion: IRC is only for quick coordination. The parent MUST use \`job poll\` for the spawned native runtime IDs, and each task MUST finish its final response immediately after final verification so the native result is delivered.
 - For executor work that writes repository files, set \`isolated: true\` when that field is available. OMP then provisions and cleans the isolated workspace. Never run git worktree yourself.
 - If isolated execution is unavailable, stop and report that execution cannot safely proceed. Never write executor changes into the primary checkout as a fallback.
 - Research, planning, review, and verification are read-only by default: do not request isolation merely to make them look parallel.
 - Preserve GSD's commit, merge, verification, and STATE.md gates. Native task isolation runs work; it does not bypass workflow safety.
+- If the parent sends an IRC status request, reply before further tool use with the current step, blocker (or \`none\`), and whether execution remains active. Treat it as coordination, not a new research assignment; do not restart codebase discovery.
 `;
 
 function ompResultProtocol(name) {
@@ -32,14 +33,13 @@ function ompResultProtocol(name) {
 
 The orchestrator reconciles native task results before it updates GSD tracking. Do not report a plan as complete until its required commits and SUMMARY.md have been written.
 
-End the native task's final response with exactly one result line, using the phase, plan, and task name (the native runtime ID) assigned by the orchestrator:
-Before any normal final response, call the native hidden yield tool exactly once. Its completion result MUST end with the assigned result line.
+End the native task's normal final response with exactly one result line, using the phase, plan, and task ID assigned by the orchestrator. Do not call a hidden yield tool; the native task runtime delivers the final response.
 
 \`\`\`text
 [gsd-task-result] phase {PHASE} plan {PLAN} task {TASK_ID} completed
 \`\`\`
 
-If execution stops before the plan is complete, emit \`failed\` or \`cancelled\` instead of \`completed\`. The result line is a lifecycle record, not a substitute for GSD's filesystem, merge, verification, or STATE.md gates.
+If execution stops before the plan is complete, end the normal final response with \`failed\` or \`cancelled\` instead of \`completed\`. The result line is a lifecycle record, not a substitute for GSD's filesystem, merge, verification, or STATE.md gates.
 `;
 }
 
