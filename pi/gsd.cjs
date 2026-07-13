@@ -505,6 +505,24 @@ module.exports = function gsdPiExtension(pi) {
     return { phase: Number(phase), plan, task, status };
   }
 
+  function failedNativeTaskResults(event) {
+    const progress = event?.details?.progress;
+    if (!Array.isArray(progress)) return [];
+    const results = [];
+    for (const task of progress) {
+      if (!['failed', 'aborted'].includes(task?.status) || typeof task?.id !== 'string') continue;
+      const match = task.id.match(/^Phase(\d+)Plan([A-Za-z0-9_.-]+)Executor$/i);
+      if (!match) continue;
+      const [, phase, compactPlan] = match;
+      const normalizedPhase = phase.padStart(2, '0');
+      const plan = /^\d+$/.test(compactPlan) && compactPlan.startsWith(normalizedPhase) && compactPlan.length > normalizedPhase.length
+        ? `${normalizedPhase}-${compactPlan.slice(normalizedPhase.length)}`
+        : compactPlan;
+      results.push({ phase: Number(phase), plan, task: task.id, status: task.status === 'aborted' ? 'cancelled' : 'failed' });
+    }
+    return results;
+  }
+
 
   function hasExplicitTextMode(config) {
     return Object.prototype.hasOwnProperty.call(config?.workflow || {}, 'text_mode');
@@ -1117,7 +1135,7 @@ Execute GSD phase \`${phaseCommand}\` end-to-end using the execute-phase workflo
 OMP dispatch contract:
 - This OMP contract takes precedence over runtime-specific \`Agent(...)\` or \`isolation="worktree"\` directions in execute-phase: on OMP, native \`task\` with \`isolated: true\` is the only valid isolated executor dispatch.
 - Use native \`task\` for every non-interactive executor dispatch. One plan is one task; independent plans in a wave are one task batch. Never use \`irc wait\` for task completion: IRC is coordination-only. Use \`job poll\` for the spawned native runtime IDs and consume the native task result before dispatching the next wave.
-- For a wave, call native \`task\` with its batch shape: top-level \`agent: "gsd-executor"\`, a shared \`context\`, and \`tasks\`. Each executor item has \`id: "Phase${phase}Plan{PLAN}Executor"\`, \`role: "GSD plan executor"\`, an operator-facing \`description\`, the complete plan assignment in \`assignment\`, and \`isolated: true\`. Use these real task fields; never invent \`name\` or per-item \`agent\`/\`task\` fields.
+- For a wave, call native \`task\` with its batch shape: top-level \`agent: "gsd-executor"\`, a shared \`context\`, and \`tasks\`. Each executor item has \`id: "Phase${phase}Plan{PLAN_COMPACT}Executor"\` (remove plan punctuation), \`role: "GSD plan executor"\`, an operator-facing \`description\`, the complete plan assignment in \`assignment\`, and \`isolated: true\`. Use these real task fields; never invent \`name\` or per-item \`agent\`/\`task\` fields.
 - Every executor that writes repository files MUST request \`isolated: true\`. If isolated execution is unavailable, stop and report the blocked plan; never fall back to main-checkout writes or manual \`git worktree\` commands.
 - \`--interactive\` is the only sequential inline mode. All other executor work uses native task dispatch.
 - Native task completion is not a completion gate. Reconcile its \`[gsd-task-result]\` line, then require the existing SUMMARY.md, commit, merge, post-wave verification, and STATE.md updates before marking the plan complete.
@@ -1488,6 +1506,7 @@ OMP verification contract:
     const checkpoint = extractCheckpoint(output);
     const taskResult = extractTaskResult(output);
     if (taskResult) persistTaskResult(ctx.cwd, taskResult);
+    else for (const failedResult of failedNativeTaskResults(event)) persistTaskResult(ctx.cwd, failedResult);
     if (checkpoint) {
       persistCheckpoint(ctx.cwd, checkpoint);
       updateStatus(ctx);

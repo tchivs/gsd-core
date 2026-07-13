@@ -113,7 +113,7 @@ test('the native phase command injects a task-based execution contract', async (
   assert.match(pi._recorded.messages[0].message.content, /isolated: true/);
   assert.match(pi._recorded.messages[0].message.content, /top-level `agent: "gsd-executor"`, a shared `context`, and `tasks`/);
   assert.match(pi._recorded.messages[0].message.content, /agent: "gsd-executor"/);
-  assert.match(pi._recorded.messages[0].message.content, /id: "Phase05Plan\{PLAN\}Executor"/);
+  assert.match(pi._recorded.messages[0].message.content, /id: "Phase05Plan\{PLAN_COMPACT\}Executor"/);
   assert.match(pi._recorded.messages[0].message.content, /never invent `name` or per-item `agent`\/`task` fields/);
   assert.match(pi._recorded.messages[0].message.content, /never fall back to main-checkout writes or manual `git worktree` commands/i);
   assert.match(pi._recorded.messages[0].message.content, /uncommitted handoff/);
@@ -593,7 +593,7 @@ test('the OMP development installer projects every GSD skill with runtime paths'
     assert.match(executeSkill, /use `job poll`/);
     assert.match(executeSkill, /Never use `irc wait`/);
     assert.match(executeSkill, /top-level `agent: "gsd-executor"`, shared `context`, and `tasks\[\]`/);
-    assert.match(executeSkill, /stable `id` such as `Phase\{PHASE\}Plan\{PLAN\}Executor`/);
+    assert.match(executeSkill, /stable `id` such as `Phase\{PHASE\}Plan\{PLAN_COMPACT\}Executor`/);
     assert.match(executeSkill, /Do not invent `name` or per-item `agent`\/`task` fields/);
     assert.match(executeSkill, /Do not call a hidden yield tool/);
     assert.match(executeSkill, /native runtime ID/);
@@ -683,7 +683,7 @@ test('the adapter leaves native task activity to OMP', async () => {
   await pi._recorded.commands['gsd-execute-phase'].handler('04', ctx);
   const result = await pi._recorded.events.tool_call({
     toolName: 'task',
-    input: { tasks: [{ name: 'SandboxIsolationFix' }] },
+    input: { tasks: [{ id: 'Phase04Plan0401Executor', role: 'GSD plan executor', description: 'Execute plan', assignment: 'Execute 04-01', isolated: true }] },
   }, ctx);
   assert.equal(result, undefined);
   assert.deepEqual(statuses, []);
@@ -709,6 +709,27 @@ test('the OMP adapter persists native executor task results', async () => {
     content: [{ type: 'text', text: '## Completed\n<output>{"message":"[gsd-task-result] phase 05 plan 05-08 task Phase05Plan0508Executor failed"}</output>' }],
   }, { cwd });
   assert.deepEqual(JSON.parse(fs.readFileSync(path.join(cwd, '.planning', '.omp-task-results.json'), 'utf8')), [{ ...result, status: 'failed' }]);
+
+  fs.unlinkSync(path.join(cwd, '.planning', '.omp-task-results.json'));
+  await pi._recorded.events.tool_result({
+    toolName: 'task',
+    content: [],
+    details: { progress: [{ id: 'Phase05Plan0508Executor', agent: 'gsd-executor', status: 'failed' }] },
+  }, { cwd });
+  assert.deepEqual(JSON.parse(fs.readFileSync(path.join(cwd, '.planning', '.omp-task-results.json'), 'utf8')), [{ ...result, status: 'failed' }]);
+
+  fs.unlinkSync(path.join(cwd, '.planning', '.omp-task-results.json'));
+  await pi._recorded.events.tool_result({
+    toolName: 'task',
+    content: [],
+    details: { progress: [{ id: 'Phase100Plan10001Executor', agent: 'gsd-executor', status: 'aborted' }] },
+  }, { cwd });
+  assert.deepEqual(JSON.parse(fs.readFileSync(path.join(cwd, '.planning', '.omp-task-results.json'), 'utf8')), [{
+    phase: 100,
+    plan: '100-01',
+    task: 'Phase100Plan10001Executor',
+    status: 'cancelled',
+  }]);
 });
 
 
