@@ -879,20 +879,33 @@ module.exports = function gsdPiExtension(pi) {
 
   function widgetLines(cwd) {
     const chinese = usesChinese(cwd);
-    const action = readNextAction(cwd);
+    const recovery = nativeTaskRecovery(cwd);
+    const action = recovery ? null : readNextAction(cwd);
     const state = stateSnapshot(cwd);
-    if (!state && !action) return [];
-    if (state?.unreadable) return [widgetColor(31, chinese ? 'GSD · 状态文件无法解析' : 'GSD · state unreadable')];
+    if (!state && !action && !recovery) return [];
+    const recoveryCount = recovery?.failures.length || 0;
+    const recoveryRow = recoveryCount
+      ? widgetColor(31, chinese ? `⛔ ${recoveryCount} 个原生任务待恢复` : `⛔ Native task recovery: ${recoveryCount} failed`)
+      : null;
+    if (state?.unreadable) {
+      const lines = [widgetColor(31, chinese ? 'GSD · 状态文件无法解析' : 'GSD · state unreadable')];
+      if (recoveryRow) lines.push(`└─ ${recoveryRow}`, `   ${widgetColor(2, recovery.command)}`);
+      return lines;
+    }
     const hasRisks = Boolean(state?.blockers || state?.concerns);
-    if (!hasRisks && !action) return [];
-    const heading = action
-      ? widgetColor(36, chinese ? 'GSD · 下一步' : 'GSD · Next Up')
-      : widgetColor(33, chinese ? 'GSD · 需要关注' : 'GSD · Attention');
+    if (!hasRisks && !action && !recovery) return [];
+    const heading = recovery
+      ? widgetColor(31, chinese ? 'GSD · 需要任务恢复' : 'GSD · Recovery needed')
+      : action
+        ? widgetColor(36, chinese ? 'GSD · 下一步' : 'GSD · Next Up')
+        : widgetColor(33, chinese ? 'GSD · 需要关注' : 'GSD · Attention');
     const rows = [];
     if (hasRisks) rows.push(widgetRiskLine(state, chinese));
+    if (recoveryRow) rows.push(recoveryRow);
     if (action) rows.push(action.label.slice(0, 92));
     const lines = [heading, ...rows.map((row, index) => `${index === rows.length - 1 ? '└─' : '├─'} ${row}`)];
-    if (action) lines.push(`   ${widgetColor(2, action.command)}`);
+    const command = recovery?.command || action?.command;
+    if (command) lines.push(`   ${widgetColor(2, command)}`);
     return lines;
   }
 

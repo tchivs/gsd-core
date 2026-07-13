@@ -830,6 +830,18 @@ test('status and next surface native task recovery until completion', async () =
   const pi = mockPi();
   gsdPiExtension(pi);
 
+  const widgets = [];
+  await pi._recorded.events.session_start({}, {
+    cwd,
+    hasUI: true,
+    ui: { setWidget: (key, lines, options) => widgets.push({ key, lines, options }) },
+  });
+  assert.deepEqual(widgets[0].lines.map(stripAnsi), [
+    'GSD · Recovery needed',
+    '└─ ⛔ Native task recovery: 1 failed',
+    '   /gsd-execute-phase 05',
+  ]);
+
   await pi._recorded.commands['gsd-status'].handler('', { cwd });
   assert.match(pi._recorded.messages.at(-1).message.content, /Native task recovery: Phase 05 \/ plan 05-08 \/ task Phase05Plan0508Executor: failed/);
   assert.match(pi._recorded.messages.at(-1).message.content, /Recovery command: \/gsd-execute-phase 05/);
