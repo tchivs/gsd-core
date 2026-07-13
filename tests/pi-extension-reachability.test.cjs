@@ -222,6 +222,30 @@ test('the verification command selects completed phases and resumes incomplete U
   assert.equal(pi._recorded.messages.at(-1).message.customType, 'gsd-verify-input-error');
 });
 
+test('native commands follow one phase from discussion through UAT readiness', async () => {
+  const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'gsd-omp-lifecycle-'));
+  const phaseDirectory = path.join(cwd, '.planning', 'phases', '02-lifecycle');
+  fs.mkdirSync(phaseDirectory, { recursive: true });
+  fs.writeFileSync(path.join(cwd, '.planning', 'ROADMAP.md'), '- [ ] **Phase 2: Lifecycle** - Exercise the native path.\n');
+  const pi = mockPi();
+  gsdPiExtension(pi);
+  const ctx = { cwd, hasUI: true, ui: { select: async (_title, options) => options[0] } };
+
+  await pi._recorded.commands['gsd-discuss-phase'].handler('02', ctx);
+  await pi._recorded.commands['gsd-plan-phase'].handler('', ctx);
+  fs.writeFileSync(path.join(phaseDirectory, '02-01-PLAN.md'), 'plan');
+  await pi._recorded.commands['gsd-execute-phase'].handler('', ctx);
+  fs.writeFileSync(path.join(phaseDirectory, '02-01-SUMMARY.md'), 'summary');
+  await pi._recorded.commands['gsd-verify-work'].handler('', ctx);
+
+  assert.deepEqual(pi._recorded.messages.map(({ message }) => message.customType), [
+    'gsd-native-discuss-phase',
+    'gsd-native-plan-phase',
+    'gsd-native-execute-phase',
+    'gsd-native-verify-work',
+  ]);
+});
+
 test('the native phase command blocks parent-checkout source writes', async () => {
   const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'gsd-omp-native-phase-'));
   fs.mkdirSync(path.join(cwd, '.planning'));
