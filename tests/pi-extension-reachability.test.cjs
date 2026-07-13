@@ -50,6 +50,7 @@ test('the OMP bridge registers command, tool, and lifecycle hooks', () => {
   assert.equal(typeof pi._recorded.commands['gsd-execute-phase'].handler, 'function');
   assert.equal(typeof pi._recorded.commands['gsd-next'].handler, 'function');
   assert.equal(typeof pi._recorded.commands['gsd-discuss-phase'].handler, 'function');
+  assert.equal(typeof pi._recorded.commands['gsd-plan-phase'].handler, 'function');
   assert.equal(typeof pi._recorded.tools.gsd_invoke.execute, 'function');
   assert.equal(typeof pi._recorded.events.session_start, 'function');
   assert.equal(typeof pi._recorded.events.tool_call, 'function');
@@ -130,6 +131,47 @@ test('the native discussion command requires OMP question controls by default', 
 
   await pi._recorded.commands['gsd-discuss-phase'].handler('three', { cwd: path.resolve(__dirname, '..') });
   assert.equal(pi._recorded.messages.at(-1).message.customType, 'gsd-discuss-input-error');
+});
+
+test('the plan command selects an unplanned phase and preserves planning workflow controls', async () => {
+  const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'gsd-omp-plan-picker-'));
+  const plannedPhase = path.join(cwd, '.planning', 'phases', '03-existing');
+  const plannablePhase = path.join(cwd, '.planning', 'phases', '02-analysis');
+  fs.mkdirSync(plannablePhase, { recursive: true });
+  fs.mkdirSync(plannedPhase, { recursive: true });
+  fs.writeFileSync(path.join(cwd, '.planning', 'ROADMAP.md'), '- [ ] **Phase 2: Analysis** - Build auditable reports.\n- [ ] **Phase 3: Existing** - Do not replan.\n');
+  fs.writeFileSync(path.join(plannablePhase, 'CONTEXT.md'), 'context');
+  fs.writeFileSync(path.join(plannablePhase, 'RESEARCH.md'), 'research');
+  fs.writeFileSync(path.join(plannedPhase, '03-01-PLAN.md'), 'plan');
+  const pi = mockPi();
+  gsdPiExtension(pi);
+  const menus = [];
+  await pi._recorded.commands['gsd-plan-phase'].handler('', { cwd, hasUI: true, ui: {
+    select: async (_title, options) => {
+      menus.push(options);
+      return options[0];
+    },
+  } });
+  assert.deepEqual(menus[0], [{
+    phase: '02',
+    label: 'Phase 2: Analysis',
+    description: 'CONTEXT ready · RESEARCH ready · no plans',
+  }]);
+  assert.equal(pi._recorded.messages.at(-1).message.customType, 'gsd-native-plan-phase');
+  assert.match(pi._recorded.messages.at(-1).message.content, /Execute GSD phase planning `02`/);
+  assert.match(pi._recorded.messages.at(-1).message.content, /native `ask` tool/);
+  assert.match(pi._recorded.messages.at(-1).message.content, /Preserve existing artifacts/);
+
+  await pi._recorded.commands['gsd-plan-phase'].handler('03 --skip-research --ingest docs/decisions --ingest-format madr --reviews', { cwd });
+  assert.equal(pi._recorded.messages.at(-1).message.customType, 'gsd-native-plan-phase');
+  assert.match(pi._recorded.messages.at(-1).message.content, /`03 --skip-research --ingest docs\/decisions --ingest-format madr --reviews`/);
+
+  fs.writeFileSync(path.join(plannablePhase, '02-01-PLAN.md'), 'plan');
+  await pi._recorded.commands['gsd-plan-phase'].handler('', { cwd, hasUI: true, ui: { select: async () => { throw new Error('must not prompt'); } } });
+  assert.equal(pi._recorded.messages.at(-1).message.customType, 'gsd-plan-no-plannable-phase');
+
+  await pi._recorded.commands['gsd-plan-phase'].handler('03 --ingest-format yaml', { cwd });
+  assert.equal(pi._recorded.messages.at(-1).message.customType, 'gsd-plan-input-error');
 });
 
 test('the native phase command blocks parent-checkout source writes', async () => {

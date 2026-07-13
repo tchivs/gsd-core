@@ -689,6 +689,45 @@ module.exports = function gsdPiExtension(pi) {
       .filter(Boolean);
   }
 
+  function phasePlanningStatus(cwd, phase) {
+    const phasesPath = path.join(cwd, '.planning', 'phases');
+    try {
+      const phaseDirectory = fs.readdirSync(phasesPath, { withFileTypes: true })
+        .find((entry) => entry.isDirectory() && entry.name.startsWith(`${phase}-`));
+      if (!phaseDirectory) return { context: false, research: false, plans: 0 };
+      const phasePath = path.join(phasesPath, phaseDirectory.name);
+      const progress = phaseArtifactProgress(cwd, { phase });
+      return {
+        context: fs.existsSync(path.join(phasePath, 'CONTEXT.md')),
+        research: fs.existsSync(path.join(phasePath, 'RESEARCH.md')),
+        plans: progress?.plans || 0,
+      };
+    } catch {
+      return { context: false, research: false, plans: 0 };
+    }
+  }
+
+  function plannablePhaseOptions(cwd) {
+    let roadmap;
+    try {
+      roadmap = fs.readFileSync(path.join(cwd, '.planning', 'ROADMAP.md'), 'utf8');
+    } catch {
+      return [];
+    }
+    return [...roadmap.matchAll(/^-\s+\[ \]\s+\*\*Phase\s+(\d+):\s+(.+?)\*\*/gmi)]
+      .map(([, number, name]) => {
+        const phase = String(Number(number)).padStart(2, '0');
+        const status = phasePlanningStatus(cwd, phase);
+        if (status.plans) return null;
+        return {
+          phase,
+          label: `Phase ${Number(number)}: ${name.trim()}`,
+          description: `CONTEXT ${status.context ? 'ready' : 'missing'} · RESEARCH ${status.research ? 'ready' : 'missing'} · no plans`,
+        };
+      })
+      .filter(Boolean);
+  }
+
   function planProgress(cwd, state, width = 10) {
     const artifactProgress = phaseArtifactProgress(cwd, state);
     const total = artifactProgress?.plans ?? Number(state?.totalPlans);
@@ -1072,6 +1111,75 @@ OMP interaction contract:
 `;
   }
 
+  function nativePlanPrompt(input) {
+    const tokens = parseCommandLine(input);
+    const [phase, ...options] = tokens;
+    if (!/^\d+$/.test(phase || '')) return null;
+    const valueOptions = new Map([
+      ['--research-phase', (value) => /^\d+$/.test(value || '')],
+      ['--prd', (value) => Boolean(value)],
+      ['--ingest', (value) => Boolean(value)],
+      ['--ingest-format', (value) => ['auto', 'nygard', 'madr', 'narrative'].includes(value)],
+    ]);
+    const flagOptions = new Set(['--auto', '--research', '--skip-research', '--view', '--gaps', '--skip-verify', '--reviews', '--text', '--tdd', '--mvp']);
+    for (let index = 0; index < options.length; index += 1) {
+      const option = options[index];
+      if (valueOptions.has(option)) {
+        if (!valueOptions.get(option)(options[index + 1])) return null;
+        index += 1;
+      } else if (!flagOptions.has(option)) {
+        return null;
+      }
+    }
+    const phaseCommand = [phase, ...options].join(' ');
+    return `# OMP native GSD phase planning
+
+Execute GSD phase planning \`${phaseCommand}\` end-to-end using the gsd-plan-phase workflow and its existing research, planning, and verification gates.
+
+OMP interaction contract:
+- Start with a phase preflight: inspect that phase's CONTEXT.md, RESEARCH.md, PLAN.md, SUMMARY.md, and roadmap status. Preserve existing artifacts; do not overwrite a plan or silently replan a phase that already has PLAN.md files.
+- Unless \`--text\`, \`--auto\`, or an explicitly non-interactive workflow mode changes behavior, use the native \`ask\` tool for every workflow AskUserQuestion. Never render numbered plain-text choices as a substitute.
+- Ask only for decisions the workflow actually requires. Preserve phase scope, existing locked decisions, research results, and verification feedback; do not default unresolved decisions.
+- \`--text\` is the only plain-text fallback. It must explicitly display numbered choices and wait for typed input.
+- Preserve the existing planner, research, review, and plan-checker contracts. The native command is an entry point, not a replacement workflow.
+`;
+  }
+
+  async function launchNativePhasePlanning(ctx, input) {
+    const prompt = nativePlanPrompt(input);
+    if (!prompt) {
+      await pi.sendMessage({ customType: 'gsd-plan-input-error', content: 'Usage: /gsd-plan-phase <phase> [--auto] [--research] [--skip-research] [--research-phase N] [--view] [--gaps] [--skip-verify] [--prd FILE] [--ingest PATH] [--ingest-format auto|nygard|madr|narrative] [--reviews] [--text] [--tdd] [--mvp]', display: true }, { triggerTurn: false });
+      return;
+    }
+    await pi.sendMessage({ customType: 'gsd-native-plan-phase', content: prompt, display: true }, { triggerTurn: true });
+  }
+
+  async function choosePlanningPhase(ctx) {
+    const chinese = usesChinese(ctx.cwd);
+    const phases = plannablePhaseOptions(ctx.cwd);
+    if (!phases.length) {
+      await pi.sendMessage({
+        customType: 'gsd-plan-no-plannable-phase',
+        content: chinese ? '没有需要初次规划的阶段。请使用 /gsd-status 查看项目状态。' : 'No roadmap phase needs its initial plan. Use /gsd-status to review the project state.',
+        display: true,
+      }, { triggerTurn: false });
+      return;
+    }
+    if (!ctx.hasUI || !ctx.ui?.select) {
+      await pi.sendMessage({ customType: 'gsd-plan-input-error', content: 'Usage: /gsd-plan-phase <phase> [--auto] [--research] [--skip-research] [--research-phase N] [--view] [--gaps] [--skip-verify] [--prd FILE] [--ingest PATH] [--ingest-format auto|nygard|madr|narrative] [--reviews] [--text] [--tdd] [--mvp]', display: true }, { triggerTurn: false });
+      return;
+    }
+    let selection;
+    try {
+      selection = await ctx.ui.select(chinese ? '规划阶段' : 'Plan a phase', phases);
+    } catch {
+      return;
+    }
+    const label = typeof selection === 'string' ? selection : selection?.label || selection?.value;
+    const phase = phases.find((candidate) => candidate.label === label);
+    if (phase) await launchNativePhasePlanning(ctx, phase.phase);
+  }
+
   pi.registerCommand('gsd-execute-phase', {
     description: 'Choose and execute a GSD phase through OMP native task waves.',
     handler: async (input, ctx) => {
@@ -1089,6 +1197,14 @@ OMP interaction contract:
         return;
       }
       await pi.sendMessage({ customType: 'gsd-native-discuss-phase', content: prompt, display: true }, { triggerTurn: true });
+    },
+  });
+
+  pi.registerCommand('gsd-plan-phase', {
+    description: 'Choose and plan a GSD phase with native OMP preflight.',
+    handler: async (input, ctx) => {
+      if (!String(input || '').trim()) return choosePlanningPhase(ctx);
+      return launchNativePhasePlanning(ctx, input);
     },
   });
 
