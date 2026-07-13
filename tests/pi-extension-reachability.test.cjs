@@ -392,6 +392,9 @@ test('the OMP agent installer projects native task and isolation guidance', () =
   assert.match(executor, /Never run git worktree yourself/);
   assert.match(executor, /OMP executor result protocol/);
   assert.match(executor, /Never use `irc wait` for task completion/);
+  assert.match(executor, /stable `name`/);
+  assert.match(executor, /shared `context` and `tasks\[\]`/);
+  assert.match(executor, /never invent `id` or `description` fields/);
   assert.match(executor, /MUST terminal-yield immediately after its final verification/);
   assert.match(executor, /call the native hidden yield tool exactly once/);
   assert.match(executor, /\[gsd-task-result\] phase \{PHASE\}/);
@@ -424,6 +427,9 @@ test('the OMP development installer projects every GSD skill with runtime paths'
     assert.match(executeSkill, /use `job poll`/);
     assert.match(executeSkill, /Never use `irc wait`/);
     assert.match(executeSkill, /MUST terminal-yield immediately after final verification/);
+    assert.match(executeSkill, /shared `context` and `tasks\[\]`/);
+    assert.match(executeSkill, /stable `name` to `Phase\{PHASE\}Plan\{PLAN\}Executor`/);
+    assert.match(executeSkill, /Do not invent `id` or `description` fields/);
   } finally {
     cleanup(runtimeRoot);
   }

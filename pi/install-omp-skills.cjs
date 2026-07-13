@@ -12,9 +12,9 @@ const OMP_SKILL_BLOCKS = {
   'gsd-execute-phase': `<omp_native_execution>
 **OMP:** Native \`task\` is the executor primitive. Replace every \`Agent(...)\` dispatch in the execution workflow with a native \`task\` dispatch; do not fall back to inline execution merely because Claude's \`Agent\` API is absent.
 
-- Create one task per plan. A parallel wave is one native task batch; use \`job poll\` for every spawned task id before progressing to the next wave. Never use \`irc wait\` as a task-completion mechanism.
+- Create one task per plan. A parallel wave is one native task batch: provide shared \`context\` and \`tasks[]\`; use \`job poll\` for every spawned native runtime ID before progressing to the next wave. Never use \`irc wait\` as a task-completion mechanism.
 - Each executor MUST terminal-yield immediately after final verification so OMP can deliver its native task result.
-- Use stable executor IDs: \`Phase{PHASE}Plan{PLAN}Executor\`; use operator-facing descriptions such as \`Execute Phase 05 plan 05-08\`.
+- Set each executor's stable \`name\` to \`Phase{PHASE}Plan{PLAN}Executor\`, its \`agent\` to \`gsd-executor\`, and its operator-facing assignment in \`task\`. Do not invent \`id\` or \`description\` fields.
 - Treat a native task result as a lifecycle signal only. Before marking a plan complete, preserve the workflow's required SUMMARY.md, commit, merge, post-wave test, and STATE.md gates.
 - Require every executor final response to end with \`[gsd-task-result] phase {PHASE} plan {PLAN} task {TASK_ID} completed\`, or \`failed\` / \`cancelled\`. OMP records this independently of the progress checkpoint.
 - Never invoke \`git worktree\` yourself. OMP owns isolation setup and cleanup.

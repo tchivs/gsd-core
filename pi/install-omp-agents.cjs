@@ -17,9 +17,9 @@ const ompOrchestration = `
 
 This runtime's native task tool owns subagents, jobs, progress, cancellation, artifacts, and isolation. When a GSD workflow asks to spawn an Agent(...), dispatch a native task instead; never emulate a subagent with shell backgrounding or a hand-written worktree.
 
-- Use a stable task id and operator-facing description: for example Phase02GapPlanner / Create focused Phase 2 repair plans.
-- Run independent research, planning, verification, and review work as native task jobs. The OMP Job and Subagents panels are the live progress source. Never use \`irc wait\` for task completion: IRC is only for quick coordination. The parent MUST use \`job poll\` for spawned task ids, and each task MUST terminal-yield immediately after its final verification so the native result is delivered.
-- For executor work that writes repository files, set isolated: true when that field is available. OMP then provisions and cleans the isolated workspace. Never run git worktree yourself.
+- Use native task's real schema: set a stable \`name\` (for example \`Phase02GapPlanner\`), an \`agent\`, and the operator-facing assignment in \`task\`. For a parallel wave, supply shared \`context\` and \`tasks[]\`; never invent \`id\` or \`description\` fields.
+- Run independent research, planning, verification, and review work as native task jobs. The OMP Job and Subagents panels are the live progress source. Never use \`irc wait\` for task completion: IRC is only for quick coordination. The parent MUST use \`job poll\` for the spawned native runtime IDs, and each task MUST terminal-yield immediately after its final verification so the native result is delivered.
+- For executor work that writes repository files, set \`isolated: true\` when that field is available. OMP then provisions and cleans the isolated workspace. Never run git worktree yourself.
 - If isolated execution is unavailable, stop and report that execution cannot safely proceed. Never write executor changes into the primary checkout as a fallback.
 - Research, planning, review, and verification are read-only by default: do not request isolation merely to make them look parallel.
 - Preserve GSD's commit, merge, verification, and STATE.md gates. Native task isolation runs work; it does not bypass workflow safety.
