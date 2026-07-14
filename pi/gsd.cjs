@@ -1170,10 +1170,55 @@ module.exports = function gsdPiExtension(pi) {
   }
 
 
+  function resumableCheckpoint(cwd, state) {
+    const checkpoint = readCheckpoint(cwd);
+    const phase = Number(state?.phase);
+    if (!checkpoint || !Number.isInteger(phase) || phase !== checkpoint.phase) return null;
+    if (String(state?.status || '').toLowerCase() !== 'executing') return null;
+    if (!checkpoint.plan.trim() || checkpoint.wave < 1 || checkpoint.wave > checkpoint.waveTotal) return null;
+    if (checkpoint.plansDone < 0 || checkpoint.plansDone >= checkpoint.plansTotal) return null;
+    return checkpoint;
+  }
+
+  async function chooseCheckpointAction(ctx, checkpoint) {
+    const chinese = usesChinese(ctx.cwd);
+    const phase = String(checkpoint.phase).padStart(2, '0');
+    const command = '/gsd-resume-work';
+    const summary = chinese
+      ? `阶段 ${phase} 在计划 ${checkpoint.plan} 后暂停：已完成 ${checkpoint.plansDone}/${checkpoint.plansTotal} 个计划。命令：${command}`
+      : `Phase ${phase} paused after plan ${checkpoint.plan}: ${checkpoint.plansDone}/${checkpoint.plansTotal} plans complete. Command: ${command}`;
+    if (!ctx.hasUI || !ctx.ui?.select) {
+      await pi.sendMessage({ customType: 'gsd-resume-ready', content: summary, display: true }, { triggerTurn: false });
+      return;
+    }
+    const choices = chinese
+      ? [
+        { label: `恢复阶段 ${phase} 的执行上下文`, description: '将恢复命令放入编辑器；不会自动执行。' },
+        { label: '查看项目概览', description: '显示当前状态、检查点和风险。' },
+        { label: '稍后处理', description: '保留检查点，不修改项目状态。' },
+      ]
+      : [
+        { label: `Resume Phase ${phase} execution context`, description: 'Put the resume command in the editor; do not run it automatically.' },
+        { label: 'View project overview', description: 'Show current state, checkpoint, and risks.' },
+        { label: 'Later', description: 'Keep the checkpoint without changing project state.' },
+      ];
+    let choice;
+    try {
+      choice = await ctx.ui.select(chinese ? 'GSD 检查点恢复' : 'GSD checkpoint recovery', choices);
+    } catch {
+      return;
+    }
+    const label = typeof choice === 'string' ? choice : choice?.label || choice?.value;
+    if (label === choices[0].label) ctx.ui.setEditorText?.(command);
+    else if (label === choices[1].label) await emitNextStep(ctx, stateSnapshot(ctx.cwd));
+  }
+
   async function chooseNextAction(ctx, state) {
     const recovery = nativeTaskRecovery(ctx.cwd);
     const continuation = !recovery && readNextAction(ctx.cwd);
     if (continuation) return choosePendingContinuation(ctx, continuation);
+    const checkpoint = !recovery && resumableCheckpoint(ctx.cwd, state);
+    if (checkpoint) return chooseCheckpointAction(ctx, checkpoint);
     const shippingPhase = !recovery && shippablePhase(ctx.cwd, state);
     if (shippingPhase) return chooseShippingAction(ctx, shippingPhase);
     const chinese = usesChinese(ctx.cwd);
@@ -1487,8 +1532,8 @@ OMP verification contract:
   async function nameNativeLifecycleSession(ctx, activity) {
     if (pi.getSessionName()?.trim()) return;
     const label = usesChinese(ctx.cwd)
-      ? { project: '新建项目', milestone: '新里程碑', ship: '发布' }[activity]
-      : { project: 'New Project', milestone: 'New Milestone', ship: 'Ship' }[activity];
+      ? { project: '新建项目', milestone: '新里程碑', resume: '恢复工作', ship: '发布' }[activity]
+      : { project: 'New Project', milestone: 'New Milestone', resume: 'Resume Work', ship: 'Ship' }[activity];
     try {
       await pi.setSessionName(`GSD · ${label}`);
     } catch {
@@ -1528,6 +1573,19 @@ OMP interaction contract:
 `;
   }
 
+  function nativeResumeWorkPrompt(input) {
+    if (parseCommandLine(input).length) return null;
+    return `# OMP native GSD work resumption
+
+Restore the current project context end-to-end using the gsd-resume-work workflow.
+
+OMP interaction contract:
+- Start by reading STATE.md, incomplete plans, and any .omp-checkpoint.json checkpoint. Treat a checkpoint as advisory: cross-check it against current artifacts before selecting work.
+- Preserve the resume workflow's state reconstruction and context-aware routing. Never rerun a completed plan or overwrite artifacts merely because a checkpoint exists.
+- Use the native \`ask\` tool for every workflow decision requiring user input. The native command is an entry point, not a replacement workflow.
+`;
+  }
+
   function nativeShipPrompt(input) {
     const tokens = parseCommandLine(input);
     if (tokens.some((token) => token.startsWith('--'))) return null;
@@ -1547,11 +1605,13 @@ OMP interaction contract:
     const prompts = {
       project: nativeNewProjectPrompt,
       milestone: nativeNewMilestonePrompt,
+      resume: nativeResumeWorkPrompt,
       ship: nativeShipPrompt,
     };
     const commandName = {
       project: 'new-project',
       milestone: 'new-milestone',
+      resume: 'resume-work',
       ship: 'ship',
     }[activity];
     const prompt = prompts[activity](input);
@@ -1559,6 +1619,7 @@ OMP interaction contract:
       const usage = {
         project: 'Usage: /gsd-new-project [--auto]',
         milestone: 'Usage: /gsd-new-milestone [milestone name]',
+        resume: 'Usage: /gsd-resume-work',
         ship: 'Usage: /gsd-ship [phase number or milestone]',
       }[activity];
       await pi.sendMessage({ customType: `gsd-${commandName}-input-error`, content: usage, display: true }, { triggerTurn: false });
@@ -1576,6 +1637,11 @@ OMP interaction contract:
   pi.registerCommand('gsd-new-milestone', {
     description: 'Start a GSD milestone with native OMP questions.',
     handler: async (input, ctx) => launchNativeLifecycle(ctx, 'milestone', input),
+  });
+
+  pi.registerCommand('gsd-resume-work', {
+    description: 'Restore a GSD project through native OMP controls.',
+    handler: async (input, ctx) => launchNativeLifecycle(ctx, 'resume', input),
   });
 
   pi.registerCommand('gsd-ship', {

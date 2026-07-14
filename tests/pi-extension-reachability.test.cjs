@@ -60,6 +60,7 @@ test('the OMP bridge registers command, tool, and lifecycle hooks', () => {
   assert.equal(typeof pi._recorded.commands['gsd-new-project'].handler, 'function');
   assert.equal(typeof pi._recorded.commands['gsd-new-milestone'].handler, 'function');
   assert.equal(typeof pi._recorded.commands['gsd-ship'].handler, 'function');
+  assert.equal(typeof pi._recorded.commands['gsd-resume-work'].handler, 'function');
   assert.equal(typeof pi._recorded.tools.gsd_invoke.execute, 'function');
   assert.equal(typeof pi._recorded.events.session_start, 'function');
   assert.equal(typeof pi._recorded.events.tool_call, 'function');
@@ -129,6 +130,12 @@ test('native lifecycle commands preserve workflow gates and session ownership', 
     assert.equal(pi._recorded.messages.at(-1).message.customType, 'gsd-native-ship');
     assert.match(pi._recorded.messages.at(-1).message.content, /Ship `05` end-to-end/);
     assert.match(pi._recorded.messages.at(-1).message.content, /Do not push, open a pull request, or claim readiness/);
+
+    pi._recorded.sessionName = undefined;
+    await pi._recorded.commands['gsd-resume-work'].handler('', { cwd });
+    assert.equal(pi._recorded.sessionName, 'GSD · Resume Work');
+    assert.equal(pi._recorded.messages.at(-1).message.customType, 'gsd-native-resume-work');
+    assert.match(pi._recorded.messages.at(-1).message.content, /gsd-resume-work workflow/);
 
     await pi._recorded.commands['gsd-new-project'].handler('invalid', { cwd });
     assert.equal(pi._recorded.messages.at(-1).message.customType, 'gsd-new-project-input-error');
@@ -1285,6 +1292,52 @@ test('the GSD next action prepares shipping only after UAT completion', async ()
     fs.writeFileSync(path.join(cwd, '.planning', 'phases', '05-release', '05-UAT.md'), '---\nstatus: in progress\n---\n');
     await pi._recorded.commands['gsd-next'].handler('', ctx);
     assert.ok(!menus.at(-1).some((label) => label.includes('shipping')));
+  } finally {
+    cleanup(cwd);
+  }
+});
+
+test('the GSD next action prepares checkpoint recovery only for active matching work', async () => {
+  const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'gsd-omp-checkpoint-next-'));
+  try {
+    fs.mkdirSync(path.join(cwd, '.planning'));
+    fs.writeFileSync(path.join(cwd, '.planning', 'STATE.md'), '---\ncurrent_phase: "05"\nstatus: executing\n---\n');
+    fs.writeFileSync(path.join(cwd, '.planning', '.omp-checkpoint.json'), JSON.stringify({ phase: 5, wave: 4, waveTotal: 10, plan: '05-08', plansDone: 7, plansTotal: 23 }));
+    const pi = mockPi();
+    gsdPiExtension(pi);
+    const menus = [];
+    const editor = [];
+    const ctx = {
+      cwd,
+      hasUI: true,
+      ui: {
+        select: async (_title, choices) => {
+          menus.push(choices.map(({ label }) => label));
+          return choices[0];
+        },
+        setEditorText: (text) => editor.push(text),
+      },
+    };
+    await pi._recorded.commands['gsd-next'].handler('', ctx);
+    assert.deepEqual(menus, [['Resume Phase 05 execution context', 'View project overview', 'Later']]);
+    assert.deepEqual(editor, ['/gsd-resume-work']);
+
+    await pi._recorded.commands['gsd-next'].handler('', { cwd });
+    assert.equal(pi._recorded.messages.at(-1).message.customType, 'gsd-resume-ready');
+    assert.equal(pi._recorded.messages.at(-1).options.triggerTurn, false);
+
+    fs.writeFileSync(path.join(cwd, '.planning', '.omp-next-action.json'), JSON.stringify({
+      label: 'Review final evidence',
+      command: '/gsd-plan-phase 05',
+      requiresFreshContext: false,
+    }));
+    await pi._recorded.commands['gsd-next'].handler('', ctx);
+    assert.equal(menus.at(-1)[0], 'Continue: Review final evidence');
+    fs.unlinkSync(path.join(cwd, '.planning', '.omp-next-action.json'));
+
+    fs.writeFileSync(path.join(cwd, '.planning', 'STATE.md'), '---\ncurrent_phase: "06"\nstatus: executing\n---\n');
+    await pi._recorded.commands['gsd-next'].handler('', ctx);
+    assert.ok(!menus.at(-1).some((label) => label.includes('Resume Phase')));
   } finally {
     cleanup(cwd);
   }
