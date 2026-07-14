@@ -57,6 +57,9 @@ test('the OMP bridge registers command, tool, and lifecycle hooks', () => {
   assert.equal(typeof pi._recorded.commands['gsd-discuss-phase'].handler, 'function');
   assert.equal(typeof pi._recorded.commands['gsd-plan-phase'].handler, 'function');
   assert.equal(typeof pi._recorded.commands['gsd-verify-work'].handler, 'function');
+  assert.equal(typeof pi._recorded.commands['gsd-new-project'].handler, 'function');
+  assert.equal(typeof pi._recorded.commands['gsd-new-milestone'].handler, 'function');
+  assert.equal(typeof pi._recorded.commands['gsd-ship'].handler, 'function');
   assert.equal(typeof pi._recorded.tools.gsd_invoke.execute, 'function');
   assert.equal(typeof pi._recorded.events.session_start, 'function');
   assert.equal(typeof pi._recorded.events.tool_call, 'function');
@@ -98,6 +101,41 @@ test('the /gsd command completes command families and defaults to CLI help', asy
   await pi._recorded.commands.gsd.handler('', { cwd: path.resolve(__dirname, '..') });
   assert.match(pi._recorded.messages.at(-1).message.content, /^✓ GSD command completed/);
   assert.match(pi._recorded.messages.at(-1).message.content, /Usage: gsd-tools/);
+});
+
+test('native lifecycle commands preserve workflow gates and session ownership', async () => {
+  const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'gsd-omp-lifecycle-'));
+  try {
+    const pi = mockPi();
+    gsdPiExtension(pi);
+
+    await pi._recorded.commands['gsd-new-project'].handler('--auto', { cwd });
+    assert.equal(pi._recorded.sessionName, 'GSD · New Project');
+    assert.equal(pi._recorded.messages.at(-1).message.customType, 'gsd-native-new-project');
+    assert.equal(pi._recorded.messages.at(-1).options.triggerTurn, true);
+    assert.match(pi._recorded.messages.at(-1).message.content, /gsd-new-project workflow --auto/);
+    assert.match(pi._recorded.messages.at(-1).message.content, /native `ask` tool/);
+
+    pi._recorded.sessionName = undefined;
+    await pi._recorded.commands['gsd-new-milestone'].handler('v2 Notifications', { cwd });
+    assert.equal(pi._recorded.sessionName, 'GSD · New Milestone');
+    assert.equal(pi._recorded.messages.at(-1).message.customType, 'gsd-native-new-milestone');
+    assert.match(pi._recorded.messages.at(-1).message.content, /Requested milestone: `v2 Notifications`/);
+    assert.match(pi._recorded.messages.at(-1).message.content, /continue phase numbering/);
+
+    pi._recorded.sessionName = 'User-defined session';
+    await pi._recorded.commands['gsd-ship'].handler('05', { cwd });
+    assert.equal(pi._recorded.sessionName, 'User-defined session');
+    assert.equal(pi._recorded.messages.at(-1).message.customType, 'gsd-native-ship');
+    assert.match(pi._recorded.messages.at(-1).message.content, /Ship `05` end-to-end/);
+    assert.match(pi._recorded.messages.at(-1).message.content, /Do not push, open a pull request, or claim readiness/);
+
+    await pi._recorded.commands['gsd-new-project'].handler('invalid', { cwd });
+    assert.equal(pi._recorded.messages.at(-1).message.customType, 'gsd-new-project-input-error');
+    assert.equal(pi._recorded.messages.at(-1).options.triggerTurn, false);
+  } finally {
+    cleanup(cwd);
+  }
 });
 
 test('the native phase command injects a task-based execution contract', async () => {

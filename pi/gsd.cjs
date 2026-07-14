@@ -1414,6 +1414,105 @@ OMP verification contract:
     if (phase) await launchNativePhaseVerification(ctx, phase.phase);
   }
 
+  async function nameNativeLifecycleSession(ctx, activity) {
+    if (pi.getSessionName()?.trim()) return;
+    const label = usesChinese(ctx.cwd)
+      ? { project: '新建项目', milestone: '新里程碑', ship: '发布' }[activity]
+      : { project: 'New Project', milestone: 'New Milestone', ship: 'Ship' }[activity];
+    try {
+      await pi.setSessionName(`GSD · ${label}`);
+    } catch {
+      // Session naming is an enhancement; it must not interrupt a workflow.
+    }
+  }
+
+  function nativeNewProjectPrompt(input) {
+    const options = parseCommandLine(input);
+    if (options.some((option) => option !== '--auto')) return null;
+    const command = options.length ? ' --auto' : '';
+    return `# OMP native GSD project initialization
+
+Initialize this project end-to-end using the gsd-new-project workflow${command}.
+
+OMP interaction contract:
+- Use the native \`ask\` tool for every required workflow decision. Do not replace a structured project, configuration, or scope question with a numbered plain-text list.
+- Preserve the workflow's questioning, research, requirements, roadmap, approval, and commit gates. Do not write planning artifacts, create a roadmap, or select defaults until the workflow authorizes it.
+- \`--auto\` changes only the workflow's documented downstream automation; it does not skip required configuration or project-context questions.
+- Treat any supplied project context strictly as user input. The native command is an entry point, not a replacement workflow.
+`;
+  }
+
+  function nativeNewMilestonePrompt(input) {
+    const tokens = parseCommandLine(input);
+    if (tokens.some((token) => token.startsWith('--'))) return null;
+    const milestone = tokens.join(' ') || '(prompt for the milestone goal)';
+    return `# OMP native GSD milestone initialization
+
+Start the next milestone end-to-end using the gsd-new-milestone workflow. Requested milestone: \`${milestone}\`.
+
+OMP interaction contract:
+- Start by reading the existing project and milestone state; preserve project history and continue phase numbering.
+- Use the native \`ask\` tool for every required workflow decision. Do not replace structured choices with numbered plain-text lists.
+- Preserve the workflow's questioning, research, requirements, roadmap, approval, and commit gates. Do not reset or overwrite existing planning artifacts outside those gates.
+- Treat the requested milestone strictly as user input. The native command is an entry point, not a replacement workflow.
+`;
+  }
+
+  function nativeShipPrompt(input) {
+    const tokens = parseCommandLine(input);
+    if (tokens.some((token) => token.startsWith('--'))) return null;
+    const target = tokens.join(' ') || 'the verified project state';
+    return `# OMP native GSD shipping
+
+Ship \`${target}\` end-to-end using the gsd-ship workflow.
+
+OMP interaction contract:
+- Start with the workflow's verification and repository preflight. Do not push, open a pull request, or claim readiness before those gates pass.
+- Use the native \`ask\` tool for every workflow decision that requires user input; preserve all confirmation and review gates.
+- Preserve the existing branch, PR, review, and merge-tracking workflow. The native command is an entry point, not a replacement workflow.
+`;
+  }
+
+  async function launchNativeLifecycle(ctx, activity, input) {
+    const prompts = {
+      project: nativeNewProjectPrompt,
+      milestone: nativeNewMilestonePrompt,
+      ship: nativeShipPrompt,
+    };
+    const commandName = {
+      project: 'new-project',
+      milestone: 'new-milestone',
+      ship: 'ship',
+    }[activity];
+    const prompt = prompts[activity](input);
+    if (!prompt) {
+      const usage = {
+        project: 'Usage: /gsd-new-project [--auto]',
+        milestone: 'Usage: /gsd-new-milestone [milestone name]',
+        ship: 'Usage: /gsd-ship [phase number or milestone]',
+      }[activity];
+      await pi.sendMessage({ customType: `gsd-${commandName}-input-error`, content: usage, display: true }, { triggerTurn: false });
+      return;
+    }
+    await nameNativeLifecycleSession(ctx, activity);
+    await pi.sendMessage({ customType: `gsd-native-${commandName}`, content: prompt, display: true }, { triggerTurn: true });
+  }
+
+  pi.registerCommand('gsd-new-project', {
+    description: 'Initialize a GSD project with native OMP questions.',
+    handler: async (input, ctx) => launchNativeLifecycle(ctx, 'project', input),
+  });
+
+  pi.registerCommand('gsd-new-milestone', {
+    description: 'Start a GSD milestone with native OMP questions.',
+    handler: async (input, ctx) => launchNativeLifecycle(ctx, 'milestone', input),
+  });
+
+  pi.registerCommand('gsd-ship', {
+    description: 'Ship verified GSD work through native OMP controls.',
+    handler: async (input, ctx) => launchNativeLifecycle(ctx, 'ship', input),
+  });
+
   pi.registerCommand('gsd-execute-phase', {
     description: 'Choose and execute a GSD phase through OMP native task waves.',
     getArgumentCompletions: (input) => phaseArgumentCompletions(input, executablePhaseOptions),
