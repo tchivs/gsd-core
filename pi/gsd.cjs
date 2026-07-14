@@ -713,6 +713,14 @@ module.exports = function gsdPiExtension(pi) {
       : [`Native task recovery: ${entries.join('; ')}`, `Recovery command: ${recovery.command}`];
   }
 
+  function checkpointRecoveryLines(checkpoint, chinese) {
+    if (!checkpoint) return [];
+    const phase = String(checkpoint.phase).padStart(2, '0');
+    return chinese
+      ? [`检查点恢复：阶段 ${phase} / 计划 ${checkpoint.plan} / 波次 ${checkpoint.wave}/${checkpoint.waveTotal} / 已完成 ${checkpoint.plansDone}/${checkpoint.plansTotal} 个计划`, '恢复命令：/gsd-resume-work']
+      : [`Checkpoint recovery: Phase ${phase} / plan ${checkpoint.plan} / wave ${checkpoint.wave}/${checkpoint.waveTotal} / ${checkpoint.plansDone}/${checkpoint.plansTotal} plans complete`, 'Resume command: /gsd-resume-work'];
+  }
+
   function phaseArtifactProgress(cwd, state) {
     const phase = String(state?.phase || '').padStart(2, '0');
     if (!/^\d+$/.test(phase)) return null;
@@ -882,10 +890,14 @@ module.exports = function gsdPiExtension(pi) {
     const recovery = nativeTaskRecovery(cwd);
     const action = recovery ? null : readNextAction(cwd);
     const state = stateSnapshot(cwd);
-    if (!state && !action && !recovery) return [];
+    const checkpoint = !recovery && !action ? resumableCheckpoint(cwd, state) : null;
+    if (!state && !action && !recovery && !checkpoint) return [];
     const recoveryCount = recovery?.failures.length || 0;
     const recoveryRow = recoveryCount
       ? widgetColor(31, chinese ? `⛔ ${recoveryCount} 个原生任务待恢复` : `⛔ Native task recovery: ${recoveryCount} failed`)
+      : null;
+    const checkpointRow = checkpoint
+      ? widgetColor(33, chinese ? `↻ 恢复阶段 ${String(checkpoint.phase).padStart(2, '0')}：${checkpoint.plansDone}/${checkpoint.plansTotal} 个计划已完成` : `↻ Resume Phase ${String(checkpoint.phase).padStart(2, '0')}: ${checkpoint.plansDone}/${checkpoint.plansTotal} plans complete`)
       : null;
     if (state?.unreadable) {
       const lines = [widgetColor(31, chinese ? 'GSD · 状态文件无法解析' : 'GSD · state unreadable')];
@@ -893,18 +905,21 @@ module.exports = function gsdPiExtension(pi) {
       return lines;
     }
     const hasRisks = Boolean(state?.blockers || state?.concerns);
-    if (!hasRisks && !action && !recovery) return [];
+    if (!hasRisks && !action && !recovery && !checkpoint) return [];
     const heading = recovery
       ? widgetColor(31, chinese ? 'GSD · 需要任务恢复' : 'GSD · Recovery needed')
       : action
         ? widgetColor(36, chinese ? 'GSD · 下一步' : 'GSD · Next Up')
-        : widgetColor(33, chinese ? 'GSD · 需要关注' : 'GSD · Attention');
+        : checkpoint
+          ? widgetColor(33, chinese ? 'GSD · 可恢复执行' : 'GSD · Resume available')
+          : widgetColor(33, chinese ? 'GSD · 需要关注' : 'GSD · Attention');
     const rows = [];
     if (hasRisks) rows.push(widgetRiskLine(state, chinese));
     if (recoveryRow) rows.push(recoveryRow);
+    if (checkpointRow) rows.push(checkpointRow);
     if (action) rows.push(action.label.slice(0, 92));
     const lines = [heading, ...rows.map((row, index) => `${index === rows.length - 1 ? '└─' : '├─'} ${row}`)];
-    const command = recovery?.command || action?.command;
+    const command = recovery?.command || (checkpoint ? '/gsd-resume-work' : action?.command);
     if (command) lines.push(`   ${widgetColor(2, command)}`);
     return lines;
   }
@@ -912,10 +927,13 @@ module.exports = function gsdPiExtension(pi) {
   function localizedStatusSummary(cwd) {
     const chinese = usesChinese(cwd);
     const recovery = nativeTaskRecovery(cwd);
-    const recoveryLines = nativeTaskRecoveryLines(recovery, chinese);
     const state = stateSnapshot(cwd);
-    if (!state) return [chinese ? '未检测到 GSD 项目状态。' : 'No GSD project state detected.', ...recoveryLines].join('\n');
-    if (state.unreadable) return [chinese ? 'GSD 状态文件无法解析。' : 'GSD state file could not be parsed.', ...recoveryLines].join('\n');
+    const action = recovery ? null : readNextAction(cwd);
+    const checkpoint = !recovery && !action ? resumableCheckpoint(cwd, state) : null;
+    const recoveryLines = nativeTaskRecoveryLines(recovery, chinese);
+    const checkpointLines = checkpointRecoveryLines(checkpoint, chinese);
+    if (!state) return [chinese ? '未检测到 GSD 项目状态。' : 'No GSD project state detected.', ...recoveryLines, ...checkpointLines].join('\n');
+    if (state.unreadable) return [chinese ? 'GSD 状态文件无法解析。' : 'GSD state file could not be parsed.', ...recoveryLines, ...checkpointLines].join('\n');
     const progressValue = planProgress(cwd, state);
     const progressText = progressValue
       ? localizedPlanProgress(progressValue, cwd)
@@ -929,6 +947,7 @@ module.exports = function gsdPiExtension(pi) {
         `风险：${riskSummary(state, true)}`,
         `下一步：${localizedNextStep(state.nextStep, cwd) || '请查看 .planning/STATE.md'}`,
         ...recoveryLines,
+        ...checkpointLines,
       ].join('\n')
       : [
         'GSD Project Status',
@@ -938,6 +957,7 @@ module.exports = function gsdPiExtension(pi) {
         `Risks: ${riskSummary(state, false)}`,
         `Next: ${state.nextStep || 'See .planning/STATE.md'}`,
         ...recoveryLines,
+        ...checkpointLines,
       ].join('\n');
   }
 

@@ -912,6 +912,35 @@ test('status and next surface native task recovery until completion', async () =
   assert.doesNotMatch(pi._recorded.messages.at(-1).message.content, /Native task recovery/);
 });
 
+test('the widget and status summary surface resumable checkpoints', async () => {
+  const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'gsd-omp-checkpoint-status-'));
+  try {
+    fs.mkdirSync(path.join(cwd, '.planning'));
+    fs.writeFileSync(path.join(cwd, '.planning', 'config.json'), JSON.stringify({ response_language: 'English' }));
+    fs.writeFileSync(path.join(cwd, '.planning', 'STATE.md'), '---\ncurrent_phase: "05"\nstatus: executing\n---\n');
+    fs.writeFileSync(path.join(cwd, '.planning', '.omp-checkpoint.json'), JSON.stringify({ phase: 5, wave: 4, waveTotal: 10, plan: '05-08', plansDone: 7, plansTotal: 23 }));
+    const pi = mockPi();
+    gsdPiExtension(pi);
+    const widgets = [];
+    await pi._recorded.events.session_start({}, {
+      cwd,
+      hasUI: true,
+      ui: { setWidget: (_key, lines) => widgets.push(lines.map(stripAnsi)) },
+    });
+    assert.deepEqual(widgets[0], [
+      'GSD · Resume available',
+      '└─ ↻ Resume Phase 05: 7/23 plans complete',
+      '   /gsd-resume-work',
+    ]);
+
+    await pi._recorded.commands['gsd-status'].handler('', { cwd });
+    assert.match(pi._recorded.messages.at(-1).message.content, /Checkpoint recovery: Phase 05 \/ plan 05-08 \/ wave 4\/10 \/ 7\/23 plans complete/);
+    assert.match(pi._recorded.messages.at(-1).message.content, /Resume command: \/gsd-resume-work/);
+  } finally {
+    cleanup(cwd);
+  }
+});
+
 test('the GSD console localizes verification-ready state and instruction', async () => {
   const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'gsd-omp-verification-'));
   fs.mkdirSync(path.join(cwd, '.planning'));
