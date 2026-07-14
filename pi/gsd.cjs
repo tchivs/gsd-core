@@ -1102,6 +1102,34 @@ module.exports = function gsdPiExtension(pi) {
     }
   }
 
+  async function chooseProjectInitialization(ctx) {
+    const chinese = usesChinese(ctx.cwd);
+    const instruction = chinese
+      ? '未检测到 GSD 项目。请使用 /gsd-new-project 初始化项目。'
+      : 'No GSD project detected. Start with /gsd-new-project.';
+    if (!ctx.hasUI || !ctx.ui?.select) {
+      await pi.sendMessage({ customType: 'gsd-start-project', content: instruction, display: true }, { triggerTurn: false });
+      return;
+    }
+    const choices = chinese
+      ? [
+        { label: '新建 GSD 项目', description: '将初始化命令放入编辑器；不会自动执行。' },
+        { label: '稍后处理', description: '不创建项目或修改当前目录。' },
+      ]
+      : [
+        { label: 'Start a GSD project', description: 'Put the initialization command in the editor; do not run it automatically.' },
+        { label: 'Later', description: 'Do not create a project or modify this directory.' },
+      ];
+    let choice;
+    try {
+      choice = await ctx.ui.select(chinese ? '开始使用 GSD' : 'Start using GSD', choices);
+    } catch {
+      return;
+    }
+    const label = typeof choice === 'string' ? choice : choice?.label || choice?.value;
+    if (label === choices[0].label) ctx.ui.setEditorText?.('/gsd-new-project');
+  }
+
   async function chooseNextAction(ctx, state) {
     const recovery = nativeTaskRecovery(ctx.cwd);
     const continuation = !recovery && readNextAction(ctx.cwd);
@@ -1596,6 +1624,7 @@ OMP interaction contract:
         return;
       }
       const state = stateSnapshot(ctx.cwd);
+      if (!state && !isGsdProject(ctx.cwd)) return chooseProjectInitialization(ctx);
       if (!state || state.unreadable) {
         await pi.sendMessage({
           customType: 'gsd-next-step',

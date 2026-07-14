@@ -1217,6 +1217,41 @@ Status: Review 02-03-PLAN.md
   assert.equal(menus[1][0], 'Continue: Review 02-03-PLAN.md');
 });
 
+test('the GSD next action prepares project initialization only in a new workspace', async () => {
+  const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'gsd-omp-new-workspace-'));
+  try {
+    const pi = mockPi();
+    gsdPiExtension(pi);
+    const menus = [];
+    const editor = [];
+    await pi._recorded.commands['gsd-next'].handler('', {
+      cwd,
+      hasUI: true,
+      ui: {
+        select: async (_title, choices) => {
+          menus.push(choices.map(({ label }) => label));
+          return choices[0];
+        },
+        setEditorText: (text) => editor.push(text),
+      },
+    });
+    assert.deepEqual(menus, [['Start a GSD project', 'Later']]);
+    assert.deepEqual(editor, ['/gsd-new-project']);
+
+    await pi._recorded.commands['gsd-next'].handler('', { cwd });
+    assert.equal(pi._recorded.messages.at(-1).message.customType, 'gsd-start-project');
+    assert.equal(pi._recorded.messages.at(-1).options.triggerTurn, false);
+    assert.match(pi._recorded.messages.at(-1).message.content, /Start with \/gsd-new-project/);
+
+    fs.mkdirSync(path.join(cwd, '.planning'));
+    fs.writeFileSync(path.join(cwd, '.planning', 'PROJECT.md'), '# Existing project\n');
+    await pi._recorded.commands['gsd-next'].handler('', { cwd });
+    assert.equal(pi._recorded.messages.at(-1).message.customType, 'gsd-next-step');
+  } finally {
+    cleanup(cwd);
+  }
+});
+
 test('the adapter turns a completed GSD Next Up block into a prepared continuation', async () => {
   const pi = mockPi();
   gsdPiExtension(pi);
