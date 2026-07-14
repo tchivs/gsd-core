@@ -1007,7 +1007,7 @@ module.exports = function gsdPiExtension(pi) {
       ? chinese ? '✓ GSD 命令已完成' : '✓ GSD command completed'
       : chinese ? '✗ GSD 命令失败' : '✗ GSD command failed';
     const recovery = result.exitCode === 0
-      ? chinese ? `下一步：${localizedNextStep(stateSnapshot(cwd)?.nextStep, cwd) || '使用 /gsd-next 查看建议。'}` : `Next: ${stateSnapshot(cwd)?.nextStep || 'Use /gsd-next for a recommendation.'}`
+      ? chinese ? `下一步：${localizedNextStep(stateSnapshot(cwd)?.nextStep, cwd) || '使用 /gsd-progress --next 安全推进。'}` : `Next: ${stateSnapshot(cwd)?.nextStep || 'Use /gsd-progress --next for gated advancement.'}`
       : chinese ? '建议：使用 /gsd-status 查看项目状态和风险。' : 'Recovery: use /gsd-status to review project state and risks.';
     return [headline, recovery, '', output].join('\n');
   }
@@ -1233,6 +1233,38 @@ module.exports = function gsdPiExtension(pi) {
     else if (label === choices[1].label) await emitNextStep(ctx, stateSnapshot(ctx.cwd));
   }
 
+  async function chooseCanonicalProgress(ctx, state) {
+    const chinese = usesChinese(ctx.cwd);
+    const command = '/gsd-progress --next';
+    const summary = chinese
+      ? `使用 GSD 的受控推进流程检查并进入下一步。命令：${command}`
+      : `Use GSD's gated advancement workflow to determine and take the next step. Command: ${command}`;
+    if (!ctx.hasUI || !ctx.ui?.select) {
+      await pi.sendMessage({ customType: 'gsd-progress-next', content: summary, display: true }, { triggerTurn: false });
+      return;
+    }
+    const choices = chinese
+      ? [
+        { label: '通过 GSD 进度安全推进', description: '将受控推进命令放入编辑器；不会自动执行。' },
+        { label: '查看项目概览', description: '显示当前状态、风险和建议。' },
+        { label: '稍后处理', description: '不修改项目状态。' },
+      ]
+      : [
+        { label: 'Advance safely through GSD progress', description: 'Put the gated advancement command in the editor; do not run it automatically.' },
+        { label: 'View project overview', description: 'Show current state, risks, and recommendation.' },
+        { label: 'Later', description: 'Leave the project state unchanged.' },
+      ];
+    let choice;
+    try {
+      choice = await ctx.ui.select(chinese ? 'GSD 下一步' : 'GSD next step', choices);
+    } catch {
+      return;
+    }
+    const label = typeof choice === 'string' ? choice : choice?.label || choice?.value;
+    if (label === choices[0].label) ctx.ui.setEditorText?.(command);
+    else if (label === choices[1].label) await emitNextStep(ctx, state);
+  }
+
   async function chooseNextAction(ctx, state) {
     const recovery = nativeTaskRecovery(ctx.cwd);
     const continuation = !recovery && readNextAction(ctx.cwd);
@@ -1241,20 +1273,21 @@ module.exports = function gsdPiExtension(pi) {
     if (checkpoint) return chooseCheckpointAction(ctx, checkpoint);
     const shippingPhase = !recovery && shippablePhase(ctx.cwd, state);
     if (shippingPhase) return chooseShippingAction(ctx, shippingPhase);
-    const chinese = usesChinese(ctx.cwd);
-    if (!ctx.hasUI || !ctx.ui?.select) return emitNextStep(ctx, state);
     if (recovery) {
+      const chinese = usesChinese(ctx.cwd);
+      const phase = String(recovery.failures[0].phase).padStart(2, '0');
       const choices = chinese
         ? [
-          { label: `恢复阶段 ${String(recovery.failures[0].phase).padStart(2, '0')} 的原生任务`, description: '将恢复命令放入编辑器；不会自动执行。' },
+          { label: `恢复阶段 ${phase} 的原生任务`, description: '将恢复命令放入编辑器；不会自动执行。' },
           { label: '查看项目概览', description: '显示阶段、计划、风险和失败任务。' },
           { label: '稍后处理', description: '保留失败任务记录，不改变项目状态。' },
         ]
         : [
-          { label: `Recover native task for Phase ${String(recovery.failures[0].phase).padStart(2, '0')}`, description: 'Put the recovery command in the editor; do not run it automatically.' },
+          { label: `Recover native task for Phase ${phase}`, description: 'Put the recovery command in the editor; do not run it automatically.' },
           { label: 'View project overview', description: 'Show phase, plans, risks, and failed tasks.' },
           { label: 'Later', description: 'Keep failed task records without changing project state.' },
         ];
+      if (!ctx.hasUI || !ctx.ui?.select) return emitNextStep(ctx, state);
       let choice;
       try {
         choice = await ctx.ui.select(chinese ? 'GSD 任务恢复' : 'GSD task recovery', choices);
@@ -1266,59 +1299,7 @@ module.exports = function gsdPiExtension(pi) {
       else if (label === choices[1].label) await emitNextStep(ctx, state);
       return;
     }
-    const next = localizedNextStep(state.nextStep, ctx.cwd) || (chinese ? '请查看 .planning/STATE.md' : 'See .planning/STATE.md');
-    const choices = state.blockers
-      ? (chinese
-        ? [
-          { label: '处理阻塞', description: `${riskSummary(state, true)}；下一步在解除前不可执行。` },
-          { label: '查看项目概览', description: '显示阶段、计划、风险和建议。' },
-          { label: '稍后处理', description: '不改变当前项目状态。' },
-        ]
-        : [
-          { label: 'Resolve blockers', description: `${riskSummary(state, false)}; the next action cannot run until resolved.` },
-          { label: 'View project overview', description: 'Show phase, plan progress, risks, and recommendation.' },
-          { label: 'Later', description: 'Leave the current project state unchanged.' },
-        ])
-      : (chinese
-        ? [
-          { label: compactNextLabel(next, true), description: '将推荐下一步放入编辑器；不会自动执行。' },
-          { label: '查看项目概览', description: '显示阶段、计划、风险和建议。' },
-          { label: '查看风险', description: '显示阻塞和关注项。' },
-          { label: '稍后处理', description: '不改变当前项目状态。' },
-        ]
-        : [
-          { label: compactNextLabel(next, false), description: 'Put the recommended next step in the editor; do not run it automatically.' },
-          { label: 'View project overview', description: 'Show phase, plan progress, risks, and recommendation.' },
-          { label: 'Review risks', description: 'Show blockers and concerns.' },
-          { label: 'Later', description: 'Leave the current project state unchanged.' },
-        ]);
-    let choice;
-    try {
-      choice = await ctx.ui.select(chinese ? 'GSD 下一步' : 'GSD next step', choices);
-    } catch {
-      return;
-    }
-    const label = typeof choice === 'string' ? choice : choice?.label || choice?.value;
-    if (state.blockers && label === choices[0].label) {
-      await pi.sendMessage({
-        customType: 'gsd-next-blocked',
-        content: chinese ? `下一步已暂停：${riskSummary(state, true)}。\n${riskDetails(state, true)}` : `Next step is paused: ${riskSummary(state, false)}.\n${riskDetails(state, false)}`,
-        display: true,
-      }, { triggerTurn: false });
-      return;
-    }
-    if (!state.blockers && label === choices[0].label) {
-      ctx.ui.setEditorText?.(next);
-      return;
-    }
-    if (label === choices[1].label) return emitNextStep(ctx, state);
-    if (!state.blockers && label === choices[2].label) {
-      await pi.sendMessage({
-        customType: 'gsd-risk-details',
-        content: `${chinese ? 'GSD 风险' : 'GSD Risks'}\n${riskDetails(state, chinese)}`,
-        display: true,
-      }, { triggerTurn: false });
-    }
+    return chooseCanonicalProgress(ctx, state);
   }
 
   function nativeExecutePrompt(input) {
@@ -1606,6 +1587,29 @@ OMP interaction contract:
 `;
   }
 
+  function nativeProgressPrompt(input) {
+    const tokens = parseCommandLine(input);
+    if (tokens.length > 1 || (tokens.length && tokens[0] !== '--next')) return null;
+    const mode = tokens[0] === '--next' ? ' --next' : '';
+    return `# OMP native GSD progress
+
+Execute the gsd-progress workflow${mode} end-to-end.
+
+OMP progress contract:
+- For \`--next\`, delegate all routing to the canonical progress workflow. Do not re-derive phase routing in this adapter or bypass its Gates 1–3 and Route 0 incomplete-phase invariant.
+- Preserve the workflow's state inspection, safety gates, routing, and user-interaction rules. The native command is an entry point, not a replacement workflow.
+`;
+  }
+
+  async function launchNativeProgress(ctx, input) {
+    const prompt = nativeProgressPrompt(input);
+    if (!prompt) {
+      await pi.sendMessage({ customType: 'gsd-progress-input-error', content: 'Usage: /gsd-progress [--next]', display: true }, { triggerTurn: false });
+      return;
+    }
+    await pi.sendMessage({ customType: 'gsd-native-progress', content: prompt, display: true }, { triggerTurn: true });
+  }
+
   function nativeShipPrompt(input) {
     const tokens = parseCommandLine(input);
     if (tokens.some((token) => token.startsWith('--'))) return null;
@@ -1667,6 +1671,11 @@ OMP interaction contract:
   pi.registerCommand('gsd-ship', {
     description: 'Ship verified GSD work through native OMP controls.',
     handler: async (input, ctx) => launchNativeLifecycle(ctx, 'ship', input),
+  });
+
+  pi.registerCommand('gsd-progress', {
+    description: 'Show GSD progress or advance through its gated next-step workflow.',
+    handler: async (input, ctx) => launchNativeProgress(ctx, input),
   });
 
   pi.registerCommand('gsd-execute-phase', {

@@ -60,6 +60,7 @@ test('the OMP bridge registers command, tool, and lifecycle hooks', () => {
   assert.equal(typeof pi._recorded.commands['gsd-new-project'].handler, 'function');
   assert.equal(typeof pi._recorded.commands['gsd-new-milestone'].handler, 'function');
   assert.equal(typeof pi._recorded.commands['gsd-ship'].handler, 'function');
+  assert.equal(typeof pi._recorded.commands['gsd-progress'].handler, 'function');
   assert.equal(typeof pi._recorded.commands['gsd-resume-work'].handler, 'function');
   assert.equal(typeof pi._recorded.tools.gsd_invoke.execute, 'function');
   assert.equal(typeof pi._recorded.events.session_start, 'function');
@@ -86,6 +87,7 @@ test('the /gsd command dispatches through the GSD CLI', async () => {
   assert.equal(pi._recorded.messages[0].message.customType, 'gsd-command-result');
   assert.match(pi._recorded.messages[0].message.content, /^✓ GSD command completed/);
   assert.match(pi._recorded.messages[0].message.content, /"next"\s*:\s*"01\.1"/);
+  assert.match(pi._recorded.messages[0].message.content, /Use \/gsd-progress --next for gated advancement/);
 });
 
 test('the /gsd command completes command families and defaults to CLI help', async () => {
@@ -137,12 +139,27 @@ test('native lifecycle commands preserve workflow gates and session ownership', 
     assert.equal(pi._recorded.messages.at(-1).message.customType, 'gsd-native-resume-work');
     assert.match(pi._recorded.messages.at(-1).message.content, /gsd-resume-work workflow/);
 
+
     await pi._recorded.commands['gsd-new-project'].handler('invalid', { cwd });
     assert.equal(pi._recorded.messages.at(-1).message.customType, 'gsd-new-project-input-error');
     assert.equal(pi._recorded.messages.at(-1).options.triggerTurn, false);
   } finally {
     cleanup(cwd);
   }
+});
+
+test('native progress delegates next-step routing to the canonical workflow', async () => {
+  const pi = mockPi();
+  gsdPiExtension(pi);
+  await pi._recorded.commands['gsd-progress'].handler('--next', { cwd: path.resolve(__dirname, '..') });
+  assert.equal(pi._recorded.messages.at(-1).message.customType, 'gsd-native-progress');
+  assert.equal(pi._recorded.messages.at(-1).options.triggerTurn, true);
+  assert.match(pi._recorded.messages.at(-1).message.content, /gsd-progress workflow --next/);
+  assert.match(pi._recorded.messages.at(-1).message.content, /Gates 1–3 and Route 0/);
+
+  await pi._recorded.commands['gsd-progress'].handler('--auto', { cwd: path.resolve(__dirname, '..') });
+  assert.equal(pi._recorded.messages.at(-1).message.customType, 'gsd-progress-input-error');
+  assert.equal(pi._recorded.messages.at(-1).options.triggerTurn, false);
 });
 
 test('the native phase command injects a task-based execution contract', async () => {
@@ -1194,11 +1211,12 @@ test('an unresolved language dialog never blocks the session-start handler', asy
   assert.equal(JSON.parse(fs.readFileSync(configPath, 'utf8')).response_language, 'English');
 });
 
-test('the GSD next primary action handles blockers and prepares the next step without a confirmation detour', async () => {
+test('the GSD next menu delegates in-project advancement to canonical progress', async () => {
   const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'gsd-omp-console-'));
-  fs.mkdirSync(path.join(cwd, '.planning'));
-  fs.writeFileSync(path.join(cwd, '.planning', 'config.json'), JSON.stringify({ response_language: 'English' }));
-  fs.writeFileSync(path.join(cwd, '.planning', 'STATE.md'), `---
+  try {
+    fs.mkdirSync(path.join(cwd, '.planning'));
+    fs.writeFileSync(path.join(cwd, '.planning', 'config.json'), JSON.stringify({ response_language: 'English' }));
+    fs.writeFileSync(path.join(cwd, '.planning', 'STATE.md'), `---
 current_phase: "02"
 current_phase_name: order-workflow
 status: executing
@@ -1211,46 +1229,29 @@ Status: Review 02-03-PLAN.md
 ## Blockers
 
 - Credential-store strategy unresolved
-
-## Concerns
-
-- Testnet access is pending
 `);
+    const pi = mockPi();
+    gsdPiExtension(pi);
+    const editor = [];
+    const menus = [];
+    const ctx = { cwd, hasUI: true, ui: {
+      select: async (_title, options) => {
+        menus.push(options.map(({ label }) => label));
+        return options[0];
+      },
+      setEditorText: (text) => editor.push(text),
+    } };
+    await pi._recorded.commands['gsd-next'].handler('', ctx);
+    assert.deepEqual(editor, ['/gsd-progress --next']);
+    assert.deepEqual(menus[0], ['Advance safely through GSD progress', 'View project overview', 'Later']);
 
-  const pi = mockPi();
-  gsdPiExtension(pi);
-  const editor = [];
-  const menus = [];
-  const ctx = { cwd, hasUI: true, ui: {
-    select: async (_title, options) => {
-      menus.push(options.map(({ label }) => label));
-      return options[0];
-    },
-    setEditorText: (text) => editor.push(text),
-  } };
-  await pi._recorded.commands['gsd-next'].handler('', ctx);
-  assert.equal(editor.length, 0);
-  assert.equal(pi._recorded.messages.at(-1).message.customType, 'gsd-next-blocked');
-  assert.match(pi._recorded.messages.at(-1).message.content, /⛔ 1 blocker/);
-  assert.match(pi._recorded.messages.at(-1).message.content, /⚠ Concern: Testnet access is pending/);
-  assert.deepEqual(menus[0], ['Resolve blockers', 'View project overview', 'Later']);
-
-  fs.writeFileSync(path.join(cwd, '.planning', 'STATE.md'), `---
-current_phase: "02"
-status: executing
----
-
-## Current Position
-
-Status: Review 02-03-PLAN.md
-
-## Concerns
-
-- Testnet access is pending
-`);
-  await pi._recorded.commands['gsd-next'].handler('', ctx);
-  assert.deepEqual(editor, ['Review 02-03-PLAN.md']);
-  assert.equal(menus[1][0], 'Continue: Review 02-03-PLAN.md');
+    await pi._recorded.commands['gsd-next'].handler('', { cwd });
+    assert.equal(pi._recorded.messages.at(-1).message.customType, 'gsd-progress-next');
+    assert.equal(pi._recorded.messages.at(-1).options.triggerTurn, false);
+    assert.match(pi._recorded.messages.at(-1).message.content, /gsd-progress --next/);
+  } finally {
+    cleanup(cwd);
+  }
 });
 
 test('the GSD next action prepares project initialization only in a new workspace', async () => {
