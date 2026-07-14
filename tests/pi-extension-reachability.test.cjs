@@ -720,6 +720,56 @@ test('the generic installer creates a self-contained OMP runtime', () => {
   }
 });
 
+test('the real OMP host loads the extension and serves native commands over RPC', (t) => {
+  const omp = process.env.OMP_BIN || 'omp';
+  const probe = spawnSync(omp, ['--version'], { encoding: 'utf8' });
+  if (probe.error || probe.status !== 0) {
+    t.skip(`OMP host unavailable: ${probe.error?.message || `exit ${probe.status}`}`);
+    return;
+  }
+
+  const cwd = path.resolve(__dirname, '..');
+  const runtimeRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'gsd-omp-host-runtime-'));
+  try {
+    const installer = path.join(cwd, 'bin', 'install.js');
+    const install = spawnSync(process.execPath, [installer, '--omp', '--global', '--config-dir', runtimeRoot], { encoding: 'utf8' });
+    assert.equal(install.status, 0, install.stderr);
+    const input = [
+      JSON.stringify({ id: 'commands', type: 'get_available_commands' }),
+      JSON.stringify({ id: 'status', type: 'prompt', message: '/gsd-status' }),
+    ].join('\n') + '\n';
+    const result = spawnSync(omp, [
+      '--mode', 'rpc',
+      '--no-session',
+      '--no-skills',
+      '--no-rules',
+      '--extension', runtimeRoot,
+      '--cwd', cwd,
+    ], {
+      cwd,
+      encoding: 'utf8',
+      input,
+      timeout: 30000,
+    });
+    if (result.status !== 0 && /No models available/.test(result.stderr || '')) {
+      t.skip('OMP host has no configured model');
+      return;
+    }
+    assert.equal(result.status, 0, result.stderr);
+    const frames = result.stdout.split(/\r?\n/).filter(Boolean).map((line) => JSON.parse(line));
+    const commands = frames.find((frame) => frame.id === 'commands' && frame.command === 'get_available_commands');
+    assert.ok(commands?.success, `Missing successful commands response: ${result.stdout}`);
+    const names = commands.data.commands.map(({ name }) => name);
+    for (const name of ['gsd', 'gsd-status', 'gsd-progress', 'gsd-new-project', 'gsd-resume-work']) {
+      assert.ok(names.includes(name), `Missing native OMP command: ${name}`);
+    }
+    const status = frames.find((frame) => frame.id === 'status' && frame.command === 'prompt');
+    assert.ok(status?.success, `Native /gsd-status did not complete: ${result.stdout}`);
+  } finally {
+    cleanup(runtimeRoot);
+  }
+});
+
 test('the adapter persists checkpoints without adding a footer status', async () => {
   const pi = mockPi();
   gsdPiExtension(pi);
