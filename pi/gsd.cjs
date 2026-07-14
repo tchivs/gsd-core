@@ -1130,10 +1130,52 @@ module.exports = function gsdPiExtension(pi) {
     if (label === choices[0].label) ctx.ui.setEditorText?.('/gsd-new-project');
   }
 
+  function shippablePhase(cwd, state) {
+    if (String(state?.status || '').toLowerCase() !== 'completed' || state?.blockers) return null;
+    const phase = String(state?.phase || '').padStart(2, '0');
+    if (!/^\d+$/.test(phase)) return null;
+    return phaseVerificationStatus(cwd, phase) === 'complete' ? phase : null;
+  }
+
+  async function chooseShippingAction(ctx, phase) {
+    const chinese = usesChinese(ctx.cwd);
+    const command = `/gsd-ship ${phase}`;
+    const summary = chinese
+      ? `阶段 ${phase} 已完成用户验收，可以进入发布前检查。命令：${command}`
+      : `Phase ${phase} passed user acceptance and is ready for shipping preflight. Command: ${command}`;
+    if (!ctx.hasUI || !ctx.ui?.select) {
+      await pi.sendMessage({ customType: 'gsd-ship-ready', content: summary, display: true }, { triggerTurn: false });
+      return;
+    }
+    const choices = chinese
+      ? [
+        { label: `准备发布阶段 ${phase}`, description: '将发布命令放入编辑器；不会自动执行。' },
+        { label: '查看项目概览', description: '显示阶段、计划、风险和验收状态。' },
+        { label: '稍后处理', description: '不修改项目状态。' },
+      ]
+      : [
+        { label: `Prepare shipping for Phase ${phase}`, description: 'Put the shipping command in the editor; do not run it automatically.' },
+        { label: 'View project overview', description: 'Show phase, plans, risks, and acceptance state.' },
+        { label: 'Later', description: 'Leave the project state unchanged.' },
+      ];
+    let choice;
+    try {
+      choice = await ctx.ui.select(chinese ? 'GSD 发布准备' : 'GSD shipping readiness', choices);
+    } catch {
+      return;
+    }
+    const label = typeof choice === 'string' ? choice : choice?.label || choice?.value;
+    if (label === choices[0].label) ctx.ui.setEditorText?.(command);
+    else if (label === choices[1].label) await emitNextStep(ctx, stateSnapshot(ctx.cwd));
+  }
+
+
   async function chooseNextAction(ctx, state) {
     const recovery = nativeTaskRecovery(ctx.cwd);
     const continuation = !recovery && readNextAction(ctx.cwd);
     if (continuation) return choosePendingContinuation(ctx, continuation);
+    const shippingPhase = !recovery && shippablePhase(ctx.cwd, state);
+    if (shippingPhase) return chooseShippingAction(ctx, shippingPhase);
     const chinese = usesChinese(ctx.cwd);
     if (!ctx.hasUI || !ctx.ui?.select) return emitNextStep(ctx, state);
     if (recovery) {

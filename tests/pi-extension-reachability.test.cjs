@@ -1252,6 +1252,44 @@ test('the GSD next action prepares project initialization only in a new workspac
   }
 });
 
+test('the GSD next action prepares shipping only after UAT completion', async () => {
+  const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'gsd-omp-shipping-ready-'));
+  try {
+    fs.mkdirSync(path.join(cwd, '.planning', 'phases', '05-release'), { recursive: true });
+    fs.writeFileSync(path.join(cwd, '.planning', 'STATE.md'), '---\ncurrent_phase: "05"\nstatus: completed\n---\n');
+    fs.writeFileSync(path.join(cwd, '.planning', 'phases', '05-release', '05-UAT.md'), '---\nstatus: complete\n---\n');
+    const pi = mockPi();
+    gsdPiExtension(pi);
+    const menus = [];
+    const editor = [];
+    const ctx = {
+      cwd,
+      hasUI: true,
+      ui: {
+        select: async (_title, choices) => {
+          menus.push(choices.map(({ label }) => label));
+          return choices[0];
+        },
+        setEditorText: (text) => editor.push(text),
+      },
+    };
+    await pi._recorded.commands['gsd-next'].handler('', ctx);
+    assert.deepEqual(menus, [['Prepare shipping for Phase 05', 'View project overview', 'Later']]);
+    assert.deepEqual(editor, ['/gsd-ship 05']);
+
+    await pi._recorded.commands['gsd-next'].handler('', { cwd });
+    assert.equal(pi._recorded.messages.at(-1).message.customType, 'gsd-ship-ready');
+    assert.equal(pi._recorded.messages.at(-1).options.triggerTurn, false);
+    assert.match(pi._recorded.messages.at(-1).message.content, /Command: \/gsd-ship 05/);
+
+    fs.writeFileSync(path.join(cwd, '.planning', 'phases', '05-release', '05-UAT.md'), '---\nstatus: in progress\n---\n');
+    await pi._recorded.commands['gsd-next'].handler('', ctx);
+    assert.ok(!menus.at(-1).some((label) => label.includes('shipping')));
+  } finally {
+    cleanup(cwd);
+  }
+});
+
 test('the adapter turns a completed GSD Next Up block into a prepared continuation', async () => {
   const pi = mockPi();
   gsdPiExtension(pi);
