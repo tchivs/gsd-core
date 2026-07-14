@@ -1006,10 +1006,17 @@ module.exports = function gsdPiExtension(pi) {
     const headline = result.exitCode === 0
       ? chinese ? '✓ GSD 命令已完成' : '✓ GSD command completed'
       : chinese ? '✗ GSD 命令失败' : '✗ GSD command failed';
-    const recovery = result.exitCode === 0
-      ? chinese ? `下一步：${localizedNextStep(stateSnapshot(cwd)?.nextStep, cwd) || '使用 /gsd-progress --next 安全推进。'}` : `Next: ${stateSnapshot(cwd)?.nextStep || 'Use /gsd-progress --next for gated advancement.'}`
-      : chinese ? '建议：使用 /gsd-status 查看项目状态和风险。' : 'Recovery: use /gsd-status to review project state and risks.';
-    return [headline, recovery, '', output].join('\n');
+    const nextStep = result.exitCode === 0
+      ? localizedNextStep(stateSnapshot(cwd)?.nextStep, cwd)
+      : null;
+    const recovery = result.exitCode !== 0
+      ? (chinese ? '建议：使用 /gsd-status 查看项目状态和风险。' : 'Recovery: use /gsd-status to review project state and risks.')
+      : null;
+    const lines = [headline];
+    if (nextStep) lines.push(chinese ? `下一步：${nextStep}` : `Next: ${nextStep}`);
+    if (recovery) lines.push(recovery);
+    lines.push('', output);
+    return lines.join('\n');
   }
 
   function riskDetails(state, chinese) {

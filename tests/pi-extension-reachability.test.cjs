@@ -87,7 +87,7 @@ test('the /gsd command dispatches through the GSD CLI', async () => {
   assert.equal(pi._recorded.messages[0].message.customType, 'gsd-command-result');
   assert.match(pi._recorded.messages[0].message.content, /^✓ GSD command completed/);
   assert.match(pi._recorded.messages[0].message.content, /"next"\s*:\s*"01\.1"/);
-  assert.match(pi._recorded.messages[0].message.content, /Use \/gsd-progress --next for gated advancement/);
+  assert.doesNotMatch(pi._recorded.messages[0].message.content, /gsd-progress --next/);
 });
 
 test('the /gsd command completes command families and defaults to CLI help', async () => {
